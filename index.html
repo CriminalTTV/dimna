@@ -1,0 +1,1956 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>دمنة — Script Marker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg:#16140F; --panel:#1E1B16; --panel2:#26221C; --raise:#302B23;
+    --line:#3A342B; --line2:#4B4437; --text:#DDD6CB; --muted:#A0968A;
+    --dim:#6D6458; --accent:#C9A87C; --ok:#8CB88A; --warn:#D6A354; --bad:#D98E7A;
+  }
+  html, body, #root { height:100%; margin:0; }
+  body { background:var(--bg); color:var(--text); overflow:hidden;
+         font-family:'IBM Plex Sans Arabic',system-ui,-apple-system,sans-serif;
+         font-size:14px; -webkit-font-smoothing:antialiased; }
+  * { box-sizing:border-box; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:#3B352C; border-radius:6px; border:3px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover { background:#4E4638; }
+  button, select, input, textarea { font-family:inherit; color:inherit; }
+  button { cursor:pointer; transition:background .15s ease,border-color .15s ease,color .15s ease,transform .07s ease; }
+  button:active:not(:disabled) { transform:translateY(1px); }
+  button:disabled { cursor:default; opacity:.38; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .mono { font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+
+  .btn { background:var(--panel2); border:1px solid var(--line); border-radius:7px; padding:7px 12px; font-size:13px; }
+  .btn:hover:not(:disabled) { background:var(--raise); border-color:var(--line2); }
+  .btn-sm { padding:4px 9px; font-size:12px; border-radius:6px; }
+  .btn-xs { padding:2px 7px; font-size:11px; border-radius:5px; }
+  .btn-ghost { background:transparent; }
+  .btn-ghost:hover:not(:disabled) { background:var(--panel2); }
+  .btn-primary { background:var(--accent); border-color:var(--accent); color:#16140F; font-weight:600; }
+  .btn-primary:hover:not(:disabled) { background:#D8B98E; border-color:#D8B98E; }
+  .tab { background:transparent; border:1px solid transparent; border-radius:7px; padding:5px 12px; font-size:13px; color:var(--muted); }
+  .tab:hover { background:var(--panel2); }
+  .tab.on { background:var(--panel2); border-color:var(--line2); color:var(--text); font-weight:600; }
+
+  .field { width:100%; background:var(--bg); border:1px solid var(--line); border-radius:7px;
+           padding:9px 11px; font-size:14px; line-height:1.75; resize:vertical; }
+  .field:focus { border-color:var(--line2); outline:none; }
+
+  .cue { display:flex; gap:13px; padding:6px 11px; border-radius:7px; cursor:pointer;
+         border-inline-start:3px solid transparent; align-items:baseline;
+         transition:background .16s ease,border-color .16s ease,opacity .16s ease; }
+  .cue:hover { background:#201D18; }
+  .cue.sel { background:#2E2820; border-inline-start-color:var(--accent); }
+  .cue.active { background:#35301F; border-inline-start-color:var(--warn); }
+  .cue.active.sel { background:#3C3425; }
+  .cue.past .cue-text { opacity:.5; }
+  .cue-text { line-height:1.95; flex:1; transition:color .16s ease,opacity .16s ease; }
+  .cue.active .cue-text { color:#FFF8EA; }
+  .cue-time { font-size:11px; color:var(--dim); flex:none; padding-top:4px; min-width:44px; }
+  .cue.active .cue-time { color:var(--warn); }
+  .cue.head { border-inline-start-color:var(--line2); margin-top:14px; }
+  .cue.head .cue-text { font-weight:700; color:var(--accent); letter-spacing:.01em; }
+
+  .ann { border-radius:3px; padding:0 1px; cursor:help; }
+
+  @keyframes enter { from{opacity:0;transform:translateY(-5px)} to{opacity:1;transform:none} }
+  .enter { animation:enter .17s cubic-bezier(.2,.7,.4,1) both; }
+  @keyframes pop { 0%{box-shadow:0 0 0 0 rgba(201,168,124,.5)} 100%{box-shadow:0 0 0 10px rgba(201,168,124,0)} }
+  .pop { animation:pop .5s ease-out; }
+  @keyframes fade { from{opacity:0} to{opacity:1} }
+  .fade { animation:fade .16s ease both; }
+
+  .chip { display:inline-flex; align-items:center; gap:5px; border-radius:999px;
+          padding:1px 8px; font-size:11px; font-weight:500; white-space:nowrap; }
+  .dot { width:7px; height:7px; border-radius:2px; flex:none; }
+
+  .pane { overflow-y:auto; overflow-x:hidden; padding:12px 16px 40px; }
+  .pane-head { display:flex; align-items:center; gap:9px; padding:9px 14px;
+               border-bottom:1px solid var(--line); flex-wrap:wrap; flex:none; }
+  h2 { margin:0; font-size:13px; font-weight:600; letter-spacing:.02em; }
+
+  .grip { flex:none; width:6px; cursor:col-resize; background:transparent; position:relative; }
+  .grip::after { content:""; position:absolute; inset:0 2px; background:var(--line); transition:background .15s; }
+  .grip:hover::after { background:var(--accent); }
+  .grip-h { height:7px; cursor:row-resize; position:relative; background:transparent; }
+  .grip-h::after { content:""; position:absolute; inset:2px 0; background:var(--line); transition:background .15s; }
+  .grip-h:hover::after { background:var(--accent); }
+
+  .overlay { position:fixed; inset:0; background:rgba(10,9,7,.74); display:flex;
+             align-items:center; justify-content:center; z-index:100; padding:20px; }
+  .modal { background:var(--panel); border:1px solid var(--line2); border-radius:12px;
+           width:100%; max-width:620px; max-height:85vh; display:flex; flex-direction:column;
+           box-shadow:0 20px 60px rgba(0,0,0,.5); }
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+           background:var(--raise); border:1px solid var(--line2); border-radius:8px;
+           padding:9px 16px; font-size:13px; z-index:200; box-shadow:0 8px 24px rgba(0,0,0,.45); }
+  .drop { position:fixed; inset:0; z-index:150; background:rgba(22,20,15,.9);
+          display:flex; align-items:center; justify-content:center; border:2px dashed var(--accent); }
+
+  .col { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+         display:flex; flex-direction:column; min-height:0; }
+  .card { background:var(--panel2); border:1px solid var(--line); border-radius:8px;
+          padding:10px; margin-bottom:8px; }
+  .cal-day { border:1px solid var(--line); border-radius:7px; padding:5px; min-height:78px;
+             background:var(--panel); display:flex; flex-direction:column; gap:3px; overflow:hidden; }
+  .cal-day.dim { opacity:.4; }
+  .cal-day.today { border-color:var(--accent); }
+
+  @media (max-width:860px) { .split { flex-direction:column !important; } .grip { display:none; } }
+  @media (prefers-reduced-motion:reduce) { *,.enter,.pop,.fade { animation:none !important; transition:none !important; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useRef, useEffect, useMemo, useCallback } = React;
+const LOGO = "data:image/png;base64,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";
+
+const PALETTE = ["#D6A354","#7FA8C9","#8CB88A","#B992C4","#D98E7A","#7FC4C0","#C9A87C","#A8A0D6","#D6C254","#9AA0A8"];
+const HL = ["#D6A354","#8CB88A","#7FA8C9","#D98E7A","#B992C4"];
+const DEFAULT_TAGS = [
+  { id:"ai",      label:"AI scene",       color:"#D6A354" },
+  { id:"map",     label:"Map animation",  color:"#7FA8C9" },
+  { id:"mograph", label:"Motion graphic", color:"#8CB88A" },
+  { id:"broll",   label:"Archive",        color:"#B992C4" },
+];
+const STATUS = [
+  { id:"todo",  label:"To do",       color:"#A0968A" },
+  { id:"doing", label:"In progress", color:"#D6A354" },
+  { id:"done",  label:"Done",        color:"#8CB88A" },
+];
+const hasArabic = (s) => /[\u0600-\u06FF]/.test(s || "");
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+
+/* ---------------- time ---------------- */
+const TIME_RE = /^(?:(\d{1,3}):)?(\d{1,2}):(\d{1,2})(?:[.,](\d{1,3}))?$/;
+function parseTime(s) {
+  const m = TIME_RE.exec((s||"").trim());
+  if (!m) return null;
+  return (m[1]?+m[1]:0)*3600 + +m[2]*60 + +m[3] + (m[4]?+("0."+m[4]):0);
+}
+const p2 = (n) => String(n).padStart(2,"0");
+function tc(sec,fps){ if(!isFinite(sec)||sec<0)sec=0; const t=Math.floor(sec);
+  return p2(Math.floor(t/3600))+":"+p2(Math.floor((t%3600)/60))+":"+p2(t%60)+":"+p2(Math.floor((sec-t)*fps)); }
+function clock(sec){ if(!isFinite(sec)||sec<0)sec=0;
+  const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=Math.floor(sec%60);
+  return (h? h+":"+p2(m) : m)+":"+p2(s); }
+const localISO = (d) => d ? d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate()) : "";
+const today = () => localISO(new Date());
+
+/* ---------------- script parsing ----------------
+   Symbols:  # Heading   ## Subheading   "Heading"   > Note   // comment (ignored)
+   Times:    SRT/VTT arrows, start/end/text triplets, [0:00 - 0:04] inline           */
+function parseScript(raw, fillGaps) {
+  if (!raw || !raw.trim()) return [];
+  const out = [];
+  let pending = [], lastWasText = false;
+  const push = (o) => { out.push(Object.assign({ id:uid(), kind:"line", start:null, end:null, origEnd:null }, o)); };
+
+  for (const rawLine of raw.replace(/\r/g,"").split("\n")) {
+    const line = rawLine.trim();
+    if (!line) { lastWasText = false; continue; }
+    if (/^\/\//.test(line) || /^WEBVTT/i.test(line)) continue;
+
+    let mh = /^(#{1,3})\s+(.*)$/.exec(line);
+    if (mh) { push({ kind:"head", level:mh[1].length, text:mh[2],
+                     start: pending.length ? pending[0] : null }); pending=[]; lastWasText=false; continue; }
+    if (/^".+"$/.test(line)) { push({ kind:"head", level:1, text:line.slice(1,-1),
+                     start: pending.length ? pending[0] : null }); pending=[]; lastWasText=false; continue; }
+    if (/^>\s+/.test(line)) { push({ kind:"note", text:line.replace(/^>\s+/,""),
+                     start: pending.length ? pending[0] : null }); pending=[]; lastWasText=false; continue; }
+
+    const inline = /^\[\s*([0-9:.,]+)\s*[-–—]\s*([0-9:.,]+)\s*\]\s*(.+)$/.exec(line);
+    if (inline) {
+      const a = parseTime(inline[1]), b = parseTime(inline[2]);
+      if (a !== null) { push({ text:inline[3], start:a, end:b }); pending=[]; lastWasText=true; continue; }
+    }
+    const arrow = line.split("-->");
+    if (arrow.length === 2) {
+      const a = parseTime(arrow[0]), b = parseTime(arrow[1].split(/\s+/).filter(Boolean)[0]);
+      if (a !== null) { pending = b!==null ? [a,b] : [a]; lastWasText=false; continue; }
+    }
+    const t = parseTime(line);
+    if (t !== null) { if (lastWasText) pending=[]; pending.push(t); lastWasText=false; continue; }
+    if (/^\d{1,5}$/.test(line) && !pending.length && !lastWasText) continue;
+
+    if (pending.length) {
+      push({ text:line, start:pending[0], end: pending.length>1 ? pending[1] : null });
+      pending = []; lastWasText = true;
+    } else if (lastWasText && out.length && out[out.length-1].kind === "line") {
+      out[out.length-1].text += " " + line;
+    } else {
+      push({ text:line }); lastWasText = true;
+    }
+  }
+
+  // remember the real spoken end, then optionally stretch to the next line
+  for (let i=0;i<out.length;i++) {
+    if (out[i].start === null) continue;
+    out[i].origEnd = out[i].end;
+    let nextStart = null;
+    for (let j=i+1;j<out.length;j++) if (out[j].start !== null) { nextStart = out[j].start; break; }
+    if (fillGaps && nextStart !== null) out[i].end = nextStart;
+    else if (out[i].end === null && nextStart !== null) out[i].end = nextStart;
+  }
+  return out;
+}
+
+/* ---------------- tag list parsing ----------------
+   tag | start | end | status | due | note        (# lines ignored)          */
+function parseTagList(raw, tags) {
+  const rows = [], unknown = [];
+  raw.replace(/\r/g,"").split("\n").forEach((l) => {
+    const line = l.trim();
+    if (!line || line[0] === "#") return;
+    const p = line.split("|").map((x) => x.trim());
+    if (p.length < 3) return;
+    const start = parseTime(p[1]), end = parseTime(p[2]);
+    if (start === null) return;
+    const found = tags.find((t) => t.label.toLowerCase() === p[0].toLowerCase() || t.id === p[0]);
+    if (!found && unknown.indexOf(p[0]) === -1) unknown.push(p[0]);
+    const st = (p[3]||"todo").toLowerCase();
+    rows.push({
+      tagLabel: p[0], tagId: found ? found.id : null,
+      start, end: end === null ? start : end,
+      status: STATUS.find((s) => s.id === st) ? st : "todo",
+      due: /^\d{4}-\d{2}-\d{2}$/.test(p[4]||"") ? p[4] : "",
+      note: p.slice(5).join(" | ") || "",
+    });
+  });
+  return { rows, unknown };
+}
+
+/* ---------------- storage ---------------- */
+const LS="dimna:projects", LAST="dimna:last";
+const readAll = () => { try { return JSON.parse(localStorage.getItem(LS)||"{}"); } catch(e){ return {}; } };
+const writeAll = (o) => { try { localStorage.setItem(LS, JSON.stringify(o)); return true; } catch(e){ return false; } };
+function blankProject(name){
+  return { id:uid(), name:name||"Untitled", cues:[], markers:[],
+           tags:DEFAULT_TAGS.map((t)=>Object.assign({},t)), fps:25, offset:0, audioName:"",
+           startDate:"", dueDate:"",
+           ui:{ scriptSize:16, waveH:96, splitPct:58 }, updated:Date.now() };
+}
+
+/* ---------------- waveform decode ---------------- */
+async function analyse(file, buckets) {
+  const buf = await file.arrayBuffer();
+  const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const audio = await new Ctx(1,1,8000).decodeAudioData(buf);
+  const ch = audio.getChannelData(0);
+  const step = Math.max(1, Math.floor(ch.length/buckets));
+  const peaks = new Float32Array(buckets), rms = new Float32Array(buckets);
+  for (let i=0;i<buckets;i++){
+    let mx=0,sum=0,n=0;
+    for (let j=i*step, e=Math.min(j+step, ch.length); j<e; j++){
+      const v=Math.abs(ch[j]); if(v>mx)mx=v; sum+=ch[j]*ch[j]; n++;
+    }
+    peaks[i]=mx; rms[i]=n?Math.sqrt(sum/n):0;
+  }
+  let mx=0; for(let i=0;i<buckets;i++) if(peaks[i]>mx)mx=peaks[i];
+  if(mx>0) for(let i=0;i<buckets;i++){ peaks[i]/=mx; rms[i]/=mx; }
+  return { peaks:Array.from(peaks), rms:Array.from(rms), duration:audio.duration };
+}
+function silentRuns(rms, duration, thresh, minSec){
+  const per = duration/rms.length, runs=[]; let s=-1;
+  for(let i=0;i<rms.length;i++){
+    if(rms[i]<thresh){ if(s<0)s=i; }
+    else { if(s>=0 && (i-s)*per>=minSec) runs.push([s*per,i*per]); s=-1; }
+  }
+  if(s>=0 && (rms.length-s)*per>=minSec) runs.push([s*per,duration]);
+  return runs;
+}
+
+/* ---------------- text annotation helpers ---------------- */
+function offsetIn(root, node, off) {
+  let n=0, done=false;
+  (function walk(el){
+    if(done) return;
+    if(el.nodeType===3){ if(el===node){ n+=off; done=true; } else n+=el.nodeValue.length; return; }
+    for(let i=0;i<el.childNodes.length;i++){ walk(el.childNodes[i]); if(done) return; }
+  })(root);
+  return n;
+}
+function segments(text, anns){
+  const pts = new Set([0, text.length]);
+  anns.forEach((a)=>{ pts.add(clamp(a.s,0,text.length)); pts.add(clamp(a.e,0,text.length)); });
+  const p = Array.from(pts).sort((a,b)=>a-b);
+  const out=[];
+  for(let i=0;i<p.length-1;i++){
+    const s=p[i], e=p[i+1]; if(e<=s) continue;
+    out.push({ s,e, text:text.slice(s,e), anns: anns.filter((a)=>a.s<=s && a.e>=e) });
+  }
+  return out;
+}
+
+/* ---------------- cloud ---------------- */
+const CLOUD_KEY="dimna:cloud";
+const AUDIO_TTL_DAYS=14;
+const readCloudCfg=()=>{ try{ return JSON.parse(localStorage.getItem(CLOUD_KEY)||"null"); }catch(e){ return null; } };
+const writeCloudCfg=(c)=>localStorage.setItem(CLOUD_KEY,JSON.stringify(c));
+function makeClient(cfg){
+  if(!cfg||!cfg.url||!cfg.key||!window.supabase) return null;
+  try{ return window.supabase.createClient(cfg.url,cfg.key); }catch(e){ return null; }
+}
+
+/* ================================================================ */
+function App(){
+  const audioRef=useRef(null), fileRef=useRef(null), jsonRef=useRef(null);
+  const txtRef=useRef(null), tagTxtRef=useRef(null);
+  const scriptPane=useRef(null), cueRefs=useRef({}), autoScroll=useRef(0);
+  const canvasRef=useRef(null), waveWrap=useRef(null), bodyRef=useRef(null);
+  const history=useRef([]), future=useRef([]);
+
+  const [proj,setProjRaw]=useState(()=>blankProject("Untitled"));
+  const [projects,setProjects]=useState({});
+  const [ready,setReady]=useState(false);
+  const [view,setView]=useState("script");
+
+  const [audioUrl,setAudioUrl]=useState(null);
+  const [playing,setPlaying]=useState(false);
+  const [time,setTime]=useState(0);
+  const [duration,setDuration]=useState(0);
+  const [rate,setRate]=useState(1);
+
+  const [wave,setWave]=useState(null);
+  const [waveBusy,setWaveBusy]=useState(false);
+  const [showSilence,setShowSilence]=useState(true);
+  const [zoom,setZoom]=useState(1);
+  const [viewStart,setViewStart]=useState(0);
+  const [region,setRegion]=useState(null);
+  const dragRef=useRef(null);
+
+  const [sel,setSel]=useState([]);
+  const [anchor,setAnchor]=useState(null);
+  const [editCue,setEditCue]=useState(null);
+  const [expanded,setExpanded]=useState({});
+  const [flash,setFlash]=useState(null);
+  const [follow,setFollow]=useState(true);
+  const [query,setQuery]=useState("");
+  const [filter,setFilter]=useState(null);
+  const [statusFilter,setStatusFilter]=useState(null);
+
+  const [importOpen,setImportOpen]=useState(false);
+  const [importText,setImportText]=useState("");
+  const [tagImport,setTagImport]=useState(null);
+  const [tagsOpen,setTagsOpen]=useState(false);
+  const [projOpen,setProjOpen]=useState(false);
+  const [gapsOpen,setGapsOpen]=useState(false);
+  const [helpOpen,setHelpOpen]=useState(false);
+  const [dropping,setDropping]=useState(false);
+  const [toast,setToast]=useState("");
+  const [hoverX,setHoverX]=useState(null);
+  const [cloudCfg,setCloudCfg]=useState(()=>readCloudCfg());
+  const [sb,setSb]=useState(null);
+  const [user,setUser]=useState(null);
+  const [cloudOpen,setCloudOpen]=useState(false);
+  const [syncing,setSyncing]=useState(false);
+  const [autoUpload,setAutoUpload]=useState(()=>localStorage.getItem("dimna:autoup")!=="0");
+  const audioFileRef=useRef(null);
+  const [audioUploaded,setAudioUploaded]=useState(false);
+
+  const { cues, markers, tags, fps, offset } = proj;
+  const ui = proj.ui || { scriptSize:16, waveH:96, splitPct:58 };
+  const tagOf=useCallback((id)=>tags.find((t)=>t.id===id)||tags[0]||DEFAULT_TAGS[0],[tags]);
+  const say=(m)=>{ setToast(m); setTimeout(()=>setToast((t)=>t===m?"":t),2400); };
+
+  const setProj=(fn)=>setProjRaw((x)=>Object.assign({}, typeof fn==="function"?fn(x):fn, {updated:Date.now()}));
+  const patch=(p)=>setProjRaw((x)=>Object.assign({},x,p,{updated:Date.now()}));
+  const commit=(p)=>{ history.current.push(JSON.stringify(proj)); if(history.current.length>40) history.current.shift();
+                      future.current=[]; patch(p); };
+  const undo=()=>{ const s=history.current.pop(); if(!s){ say("Nothing to undo."); return; }
+                   future.current.push(JSON.stringify(proj)); setProjRaw(JSON.parse(s)); say("Undone."); };
+  const redo=()=>{ const s=future.current.pop(); if(!s) return;
+                   history.current.push(JSON.stringify(proj)); setProjRaw(JSON.parse(s)); };
+  const setUi=(p)=>patch({ ui:Object.assign({},ui,p) });
+
+  /* ---- load / save ---- */
+  useEffect(()=>{
+    const all=readAll(); setProjects(all);
+    const last=localStorage.getItem(LAST);
+    if(last&&all[last]) setProjRaw(all[last]);
+    else { const k=Object.keys(all); if(k.length) setProjRaw(all[k[0]]); }
+    setReady(true);
+  },[]);
+  useEffect(()=>{
+    if(!ready) return;
+    const t=setTimeout(()=>{
+      const all=readAll(); all[proj.id]=proj;
+      if(!writeAll(all)) say("Browser storage is full — export your project.");
+      localStorage.setItem(LAST,proj.id); setProjects(all);
+    },500);
+    return ()=>clearTimeout(t);
+  },[proj,ready]);
+
+  /* ---- cloud: client + session ---- */
+  useEffect(()=>{
+    const c=makeClient(cloudCfg); setSb(c);
+    if(!c) return;
+    c.auth.getSession().then(({data})=>{ if(data&&data.session) setUser(data.session.user); });
+    const res=c.auth.onAuthStateChange((_e,s)=>setUser(s?s.user:null));
+    return ()=>{ try{ res.data.subscription.unsubscribe(); }catch(e){} };
+  },[cloudCfg]);
+
+  const pruneAudio=useCallback(async(rows)=>{
+    if(!sb||!user) return;
+    const cutoff=Date.now()-AUDIO_TTL_DAYS*86400000;
+    const stale=(rows||[]).filter((r)=>r.audio_path&&new Date(r.updated_at||0).getTime()<cutoff);
+    if(!stale.length) return;
+    try{
+      await sb.storage.from("audio").remove(stale.map((r)=>r.audio_path));
+      for(const r of stale) await sb.from("projects").update({audio_path:null,audio_name:null}).eq("id",r.id);
+      say("Cleared audio from "+stale.length+" project(s) untouched for "+AUDIO_TTL_DAYS+" days.");
+    }catch(e){}
+  },[sb,user]);
+
+  const pullCloud=useCallback(async()=>{
+    if(!sb||!user) return;
+    setSyncing(true);
+    try{
+      const { data,error }=await sb.from("projects").select("*");
+      if(error) throw error;
+      const all=readAll();
+      (data||[]).forEach((row)=>{
+        const local=all[row.id];
+        const remote=Object.assign({},row.data,{ id:row.id,
+          cloudAudio:row.audio_path||"", cloudAudioName:row.audio_name||"" });
+        if(!local||(remote.updated||0)>(local.updated||0)) all[row.id]=remote;
+        else if(local) all[row.id]=Object.assign({},local,{cloudAudio:row.audio_path||"",cloudAudioName:row.audio_name||""});
+      });
+      writeAll(all); setProjects(all);
+      const cur=all[proj.id]; if(cur&&(cur.updated||0)>=(proj.updated||0)) setProjRaw(cur);
+      say("Synced "+((data||[]).length)+" project(s) from the cloud.");
+      await pruneAudio(data||[]);
+    }catch(e){ say("Sync failed: "+(e.message||String(e))); }
+    setSyncing(false);
+  },[sb,user,proj,pruneAudio]);
+
+  const pushProject=useCallback(async(p)=>{
+    if(!sb||!user) return;
+    const clean=Object.assign({},p);
+    delete clean.cloudAudio; delete clean.cloudAudioName;
+    const { error }=await sb.from("projects").upsert({
+      id:p.id, user_id:user.id, name:p.name, data:clean, updated_at:new Date().toISOString() });
+    if(error) throw error;
+  },[sb,user]);
+
+  useEffect(()=>{
+    if(!sb||!user||!ready) return;
+    const t=setTimeout(()=>{ pushProject(proj).catch((e)=>say("Cloud save failed: "+(e.message||e))); },1800);
+    return ()=>clearTimeout(t);
+  },[proj,sb,user,ready,pushProject]);
+
+  const uploadAudio=useCallback(async(file,p)=>{
+    if(!sb||!user||!file) return;
+    const ext=(file.name.split(".").pop()||"mp3").toLowerCase();
+    const path=user.id+"/"+p.id+"."+ext;
+    setSyncing(true); say("Uploading audio…");
+    const up=await sb.storage.from("audio").upload(path,file,{upsert:true,contentType:file.type||"audio/mpeg"});
+    if(up.error){ setSyncing(false); say("Upload failed: "+up.error.message); return; }
+    const clean=Object.assign({},p); delete clean.cloudAudio; delete clean.cloudAudioName;
+    await sb.from("projects").upsert({ id:p.id,user_id:user.id,name:p.name,data:clean,
+      audio_path:path, audio_name:file.name, updated_at:new Date().toISOString() });
+    setSyncing(false); setAudioUploaded(true);
+    patch({ cloudAudio:path, cloudAudioName:file.name });
+    say("Audio saved to the cloud.");
+  },[sb,user]);
+
+  const fetchCloudAudio=useCallback(async(p)=>{
+    if(!sb||!user) return;
+    try{
+      const { data }=await sb.from("projects").select("audio_path,audio_name").eq("id",p.id).maybeSingle();
+      if(!data||!data.audio_path){ say("No audio stored for this project."); return; }
+      setSyncing(true); say("Downloading audio…");
+      const dl=await sb.storage.from("audio").download(data.audio_path);
+      setSyncing(false);
+      if(dl.error){ say("Couldn't fetch the audio: "+dl.error.message); return; }
+      const f=new File([dl.data],data.audio_name||"audio.mp3",{type:dl.data.type||"audio/mpeg"});
+      setAudioUploaded(true);
+      loadAudioFile(f,false);
+    }catch(e){ setSyncing(false); say("Couldn't fetch the audio."); }
+  },[sb,user]);
+
+  /* ---- derived ---- */
+  const cueIndex=useMemo(()=>{ const m={}; cues.forEach((c,i)=>m[c.id]=i); return m; },[cues]);
+  const timedCount=useMemo(()=>cues.filter((c)=>c.start!==null).length,[cues]);
+
+  const activeIdx=useMemo(()=>{
+    let found=-1;
+    for(let i=0;i<cues.length;i++){
+      const c=cues[i]; if(c.start===null||c.kind!=="line") continue;
+      if(time+0.001>=c.start+offset) found=i; else break;
+    }
+    if(found>=0){ const e=cues[found].end; if(e!==null && time>e+offset+0.4) return -1; }
+    return found;
+  },[cues,time,offset]);
+
+  const range=useCallback((m)=>{
+    if(m.cueIds&&m.cueIds.length){
+      let s=Infinity,e=-Infinity;
+      m.cueIds.forEach((id)=>{ const c=cues[cueIndex[id]]; if(!c||c.start===null) return;
+        s=Math.min(s,c.start+offset); e=Math.max(e,(c.end!==null?c.end:c.start)+offset); });
+      if(isFinite(s)) return {start:s,end:e};
+    }
+    return { start:m.start||0, end:m.end!==undefined&&m.end!==null?m.end:(m.start||0) };
+  },[cues,cueIndex,offset]);
+
+  const sorted=useMemo(()=>markers.slice().sort((a,b)=>range(a).start-range(b).start),[markers,range]);
+  const counts=useMemo(()=>{ const o={}; tags.forEach((t)=>o[t.id]=markers.filter((m)=>m.tagId===t.id).length); return o; },[markers,tags]);
+  const statusCounts=useMemo(()=>{ const o={}; STATUS.forEach((s)=>o[s.id]=markers.filter((m)=>(m.status||"todo")===s.id).length); return o; },[markers]);
+
+  const groups=useMemo(()=>{
+    const map=new Map();
+    let list=sorted;
+    if(filter) list=list.filter((m)=>m.tagId===filter);
+    if(statusFilter) list=list.filter((m)=>(m.status||"todo")===statusFilter);
+    list.forEach((m)=>{
+      const key=(m.cueIds&&m.cueIds.length)?m.cueIds.slice().sort().join("|"):"free:"+m.id;
+      const r=range(m);
+      if(!map.has(key)) map.set(key,{key,items:[],start:r.start,end:r.end});
+      const g=map.get(key); g.items.push(m); g.start=Math.min(g.start,r.start); g.end=Math.max(g.end,r.end);
+    });
+    return Array.from(map.values()).sort((a,b)=>a.start-b.start);
+  },[sorted,filter,statusFilter,range]);
+
+  const markersByCue=useMemo(()=>{ const o={};
+    markers.forEach((m)=>(m.cueIds||[]).forEach((id)=>{ (o[id]=o[id]||[]).push(m); })); return o; },[markers]);
+
+  const gaps=useMemo(()=>{
+    if(!duration) return [];
+    const spans=sorted.map(range).filter((r)=>isFinite(r.start)).sort((a,b)=>a.start-b.start);
+    const out=[]; let cur=0;
+    spans.forEach((r)=>{ if(r.start-cur>20) out.push([cur,r.start]); cur=Math.max(cur,r.end); });
+    if(duration-cur>20) out.push([cur,duration]);
+    return out;
+  },[sorted,duration,range]);
+
+  /* ---- audio ---- */
+  const loadAudioFile=async(f,mayUpload)=>{
+    if(audioUrl) URL.revokeObjectURL(audioUrl);
+    audioFileRef.current=f;
+    if(mayUpload!==false) setAudioUploaded(false);
+    setAudioUrl(URL.createObjectURL(f)); patch({audioName:f.name});
+    setTime(0); setPlaying(false); setWave(null); setWaveBusy(true); setZoom(1); setViewStart(0);
+    try{ setWave(await analyse(f,4000)); } catch(e){ say("Couldn't read the waveform from that file."); }
+    setWaveBusy(false);
+    if(mayUpload!==false && autoUpload && sb && user) uploadAudio(f,proj);
+  };
+  const openAudio=(e)=>{ const f=e.target.files&&e.target.files[0]; if(f) loadAudioFile(f); e.target.value=""; };
+  const toggle=useCallback(()=>{ const a=audioRef.current; if(!a||!audioUrl) return; if(a.paused)a.play(); else a.pause(); },[audioUrl]);
+  const seek=useCallback((t)=>{ const a=audioRef.current; if(!a) return;
+    a.currentTime=clamp(t,0,duration||0); setTime(a.currentTime); },[duration]);
+  const nudge=useCallback((d)=>seek((audioRef.current?audioRef.current.currentTime:0)+d),[seek]);
+  const jumpCue=useCallback((dir)=>{
+    const timed=cues.filter((c)=>c.start!==null&&c.kind==="line"); if(!timed.length) return;
+    const now=audioRef.current?audioRef.current.currentTime:time;
+    if(dir>0){ const n=timed.find((c)=>c.start+offset>now+0.05); if(n) seek(n.start+offset); }
+    else { const p=timed.slice().reverse().find((c)=>c.start+offset<now-0.6); seek(p?p.start+offset:0); }
+  },[cues,time,seek,offset]);
+
+  /* ---- selection ---- */
+  const clickCue=(c,i,e)=>{
+    if(e.shiftKey&&anchor!==null){
+      const a=Math.min(anchor,i), b=Math.max(anchor,i);
+      setSel(cues.slice(a,b+1).map((x)=>x.id)); return;
+    }
+    if(e.metaKey||e.ctrlKey){
+      setSel((s)=>s.indexOf(c.id)>=0?s.filter((x)=>x!==c.id):s.concat(c.id)); setAnchor(i); return;
+    }
+    setSel([c.id]); setAnchor(i);
+    if(c.start!==null) seek(c.start+offset);
+  };
+  const deleteSelected=()=>{
+    if(!sel.length) return;
+    commit({ cues:cues.filter((c)=>sel.indexOf(c.id)===-1),
+             markers:markers.map((m)=>Object.assign({},m,{cueIds:(m.cueIds||[]).filter((id)=>sel.indexOf(id)===-1)}))
+                            .filter((m)=>(m.cueIds&&m.cueIds.length)||m.start!==undefined) });
+    say(sel.length+" line"+(sel.length>1?"s":"")+" deleted · ⌘Z to undo");
+    setSel([]);
+  };
+
+  /* ---- markers ---- */
+  const addMarker=useCallback((tagId)=>{
+    const id=uid(); let m;
+    if(region && region.b-region.a>0.05){
+      m={ id,tagId,cueIds:[],start:Math.min(region.a,region.b),end:Math.max(region.a,region.b),
+          note:"",comments:[],annotations:[],status:"todo",due:"" };
+      setRegion(null);
+    } else {
+      let cueIds=sel.slice();
+      if(!cueIds.length&&activeIdx>=0) cueIds=[cues[activeIdx].id];
+      m=cueIds.length
+        ? { id,tagId,cueIds,note:"",comments:[],annotations:[],status:"todo",due:"" }
+        : { id,tagId,cueIds:[],start:audioRef.current?audioRef.current.currentTime:time,
+            end:(audioRef.current?audioRef.current.currentTime:time)+2,
+            note:"",comments:[],annotations:[],status:"todo",due:"" };
+      if(cueIds.length>1) setExpanded((g)=>Object.assign({},g,{[cueIds.slice().sort().join("|")]:true}));
+    }
+    patch({ markers:markers.concat(m) });
+    setFlash(id); setTimeout(()=>setFlash((f)=>f===id?null:f),550);
+  },[sel,activeIdx,cues,markers,time,region]);
+
+  const updMarker=(id,p)=>patch({ markers:markers.map((m)=>m.id===id?Object.assign({},m,p):m) });
+  const delMarker=(id)=>commit({ markers:markers.filter((m)=>m.id!==id) });
+
+  const addComment=(m,text)=>{
+    if(!text.trim()) return;
+    updMarker(m.id,{ comments:(m.comments||[]).concat({id:uid(),text:text.trim(),at:Date.now()}) });
+  };
+  const delComment=(m,cid)=>updMarker(m.id,{ comments:(m.comments||[]).filter((c)=>c.id!==cid) });
+  const addAnnotation=(m,a)=>updMarker(m.id,{ annotations:(m.annotations||[]).concat(Object.assign({id:uid()},a)) });
+  const delAnnotation=(m,aid)=>updMarker(m.id,{ annotations:(m.annotations||[]).filter((a)=>a.id!==aid) });
+
+  const saveCue=(id,text,start)=>{
+    commit({ cues:cues.map((c)=>c.id===id?Object.assign({},c,{text,start:start==null?c.start:start}):c) });
+    setEditCue(null);
+  };
+
+  /* ---- keyboard ---- */
+  useEffect(()=>{
+    const onKey=(e)=>{
+      const tag=(e.target.tagName||"").toLowerCase();
+      const typing = tag==="input"||tag==="textarea"||tag==="select"||e.target.isContentEditable;
+      if(typing){ if(e.key==="Escape") e.target.blur(); return; }
+      const mod = e.metaKey||e.ctrlKey;
+      if(mod && e.key.toLowerCase()==="z"){ e.preventDefault(); e.shiftKey?redo():undo(); return; }
+      if(mod && e.key.toLowerCase()==="a"){ e.preventDefault(); setSel(cues.map((c)=>c.id)); return; }
+      if(e.key==="Escape"){ setSel([]); setRegion(null); return; }
+      if((e.key==="Delete"||e.key==="Backspace") && sel.length){ e.preventDefault(); deleteSelected(); return; }
+      if(e.code==="Space"){ e.preventDefault(); toggle(); return; }
+      if(e.key==="ArrowLeft"){ e.preventDefault(); nudge(e.shiftKey?-10:-2); return; }
+      if(e.key==="ArrowRight"){ e.preventDefault(); nudge(e.shiftKey?10:2); return; }
+      if(e.key==="ArrowUp"){ e.preventDefault(); jumpCue(-1); return; }
+      if(e.key==="ArrowDown"){ e.preventDefault(); jumpCue(1); return; }
+      if(e.key==="f"||e.key==="F"){ setFollow((v)=>!v); return; }
+      if(e.key==="+"||e.key==="="){ setZoom((z)=>clamp(z*1.6,1,120)); return; }
+      if(e.key==="-"||e.key==="_"){ setZoom((z)=>clamp(z/1.6,1,120)); return; }
+      const n=parseInt(e.key,10);
+      if(n>=1&&n<=9&&tags[n-1]){ e.preventDefault(); addMarker(tags[n-1].id); }
+    };
+    window.addEventListener("keydown",onKey);
+    return ()=>window.removeEventListener("keydown",onKey);
+  },[toggle,nudge,jumpCue,addMarker,tags,cues,sel,proj]);
+
+  /* ---- follow ---- */
+  useEffect(()=>{
+    if(!follow||activeIdx<0||view!=="script") return;
+    const el=cueRefs.current[activeIdx], pane=scriptPane.current;
+    if(!el||!pane) return;
+    const er=el.getBoundingClientRect(), pr=pane.getBoundingClientRect();
+    if(er.top<pr.top+60||er.bottom>pr.bottom-60){
+      autoScroll.current=Date.now();
+      pane.scrollTo({ top:el.offsetTop-pane.clientHeight/2, behavior:"smooth" });
+    }
+  },[activeIdx,follow,view]);
+
+  /* keep the zoomed window on the playhead */
+  useEffect(()=>{
+    if(!duration||zoom<=1) { if(zoom<=1&&viewStart!==0) setViewStart(0); return; }
+    const w=duration/zoom;
+    if(time<viewStart+w*0.1||time>viewStart+w*0.9) setViewStart(clamp(time-w/2,0,duration-w));
+  },[time,zoom,duration]);
+
+  /* ---- waveform drawing ---- */
+  useEffect(()=>{
+    const cv=canvasRef.current, wrap=waveWrap.current;
+    if(!cv||!wrap) return;
+    const draw=()=>{
+      const w=wrap.clientWidth, h=wrap.clientHeight, dpr=window.devicePixelRatio||1;
+      cv.width=w*dpr; cv.height=h*dpr; cv.style.width=w+"px"; cv.style.height=h+"px";
+      const g=cv.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,w,h);
+      if(!wave||!duration) return;
+      const win=duration/zoom, vs=clamp(viewStart,0,Math.max(0,duration-win)), ve=vs+win;
+      const X=(t)=>((t-vs)/win)*w;
+      const mid=h/2, n=wave.peaks.length;
+
+      if(showSilence){
+        g.fillStyle="rgba(214,163,84,.10)";
+        silentRuns(wave.rms,wave.duration,0.035,0.4).forEach(([a,b])=>{
+          if(b<vs||a>ve) return;
+          g.fillRect(X(a),0,Math.max(1,X(b)-X(a)),h);
+        });
+      }
+      const bar=(x0,x1,color)=>{
+        g.fillStyle=color;
+        for(let x=Math.max(0,Math.floor(x0));x<Math.min(w,Math.ceil(x1));x++){
+          const t=vs+(x/w)*win, i=clamp(Math.floor((t/wave.duration)*n),0,n-1);
+          const bh=Math.max(1,(wave.peaks[i]||0)*(h-10));
+          g.fillRect(x,mid-bh/2,1,bh);
+        }
+      };
+      bar(0,w,"#5E5647");
+      bar(0,X(time),"#C9A87C");
+
+      sorted.forEach((m)=>{
+        const r=range(m); if(r.end<vs||r.start>ve) return;
+        const t=tagOf(m.tagId), x=X(r.start), ww=Math.max(2,X(r.end)-X(r.start));
+        g.fillStyle=t.color+"2E"; g.fillRect(x,0,ww,h);
+        g.fillStyle=t.color; g.fillRect(x,h-3,ww,3);
+        if((m.status||"todo")==="done"){ g.fillStyle="rgba(140,184,138,.5)"; g.fillRect(x,0,ww,3); }
+      });
+
+      if(region){
+        const a=Math.min(region.a,region.b), b=Math.max(region.a,region.b);
+        g.fillStyle="rgba(221,214,203,.16)"; g.fillRect(X(a),0,Math.max(2,X(b)-X(a)),h);
+        g.strokeStyle="#DDD6CB"; g.lineWidth=1;
+        g.strokeRect(X(a)+.5,.5,Math.max(2,X(b)-X(a))-1,h-1);
+      }
+      if(zoom>1){
+        g.fillStyle="rgba(109,100,88,.5)";
+        g.fillRect((vs/duration)*w,h-1.5,Math.max(6,(win/duration)*w),1.5);
+      }
+    };
+    draw();
+    const ro=new ResizeObserver(draw); ro.observe(wrap);
+    return ()=>ro.disconnect();
+  },[wave,showSilence,time,duration,sorted,range,tagOf,zoom,viewStart,region,ui.waveH]);
+
+  /* ---- waveform interaction ---- */
+  const waveT=(clientX)=>{
+    const wrap=waveWrap.current; if(!wrap||!duration) return 0;
+    const r=wrap.getBoundingClientRect();
+    const win=duration/zoom, vs=clamp(viewStart,0,Math.max(0,duration-win));
+    return clamp(vs+((clientX-r.left)/r.width)*win,0,duration);
+  };
+  const waveDown=(e)=>{
+    if(!duration) return;
+    dragRef.current={ t0:waveT(e.clientX), moved:false };
+    const move=(ev)=>{
+      const d=dragRef.current; if(!d) return;
+      const t=waveT(ev.clientX);
+      if(Math.abs(t-d.t0)>0.08){ d.moved=true; setRegion({a:d.t0,b:t}); }
+    };
+    const up=(ev)=>{
+      const d=dragRef.current; dragRef.current=null;
+      window.removeEventListener("mousemove",move); window.removeEventListener("mouseup",up);
+      if(d&&!d.moved){ setRegion(null); seek(d.t0); }
+    };
+    window.addEventListener("mousemove",move); window.addEventListener("mouseup",up);
+  };
+  const waveWheel=(e)=>{
+    if(!duration) return;
+    if(e.ctrlKey||e.metaKey){
+      e.preventDefault();
+      const at=waveT(e.clientX);
+      const nz=clamp(zoom*(e.deltaY<0?1.25:1/1.25),1,120);
+      const win=duration/nz;
+      setZoom(nz); setViewStart(clamp(at-win/2,0,Math.max(0,duration-win)));
+    } else if(zoom>1){
+      e.preventDefault();
+      const win=duration/zoom;
+      setViewStart((v)=>clamp(v+(e.deltaY+e.deltaX)*(win/600),0,Math.max(0,duration-win)));
+    }
+  };
+
+  /* ---- splitter / wave resize ---- */
+  const startSplit=(e)=>{
+    e.preventDefault();
+    const move=(ev)=>{
+      const b=bodyRef.current; if(!b) return;
+      const r=b.getBoundingClientRect();
+      setUi({ splitPct: clamp(((ev.clientX-r.left)/r.width)*100, 22, 82) });
+    };
+    const up=()=>{ window.removeEventListener("mousemove",move); window.removeEventListener("mouseup",up); };
+    window.addEventListener("mousemove",move); window.addEventListener("mouseup",up);
+  };
+  const startWaveResize=(e)=>{
+    e.preventDefault();
+    const y0=e.clientY, h0=ui.waveH;
+    const move=(ev)=>setUi({ waveH: clamp(h0+(y0-ev.clientY),46,340) });
+    const up=()=>{ window.removeEventListener("mousemove",move); window.removeEventListener("mouseup",up); };
+    window.addEventListener("mousemove",move); window.addEventListener("mouseup",up);
+  };
+
+  /* ---- import ---- */
+  const applyScript=(text,replace,fillGaps)=>{
+    const parsed=parseScript(text,fillGaps);
+    if(!parsed.length){ say("Nothing to import."); return; }
+    commit({ cues:replace?parsed:cues.concat(parsed), markers:replace?[]:markers });
+    setImportOpen(false); setSel([]);
+    say("Imported "+parsed.length+" lines"+(fillGaps?" · gaps filled":"")+".");
+  };
+  const readTxt=(f,then)=>{ const r=new FileReader(); r.onload=()=>then(String(r.result)); r.readAsText(f,"utf-8"); };
+
+  const openTxt=(e)=>{ const f=e.target.files&&e.target.files[0]; if(!f) return;
+    readTxt(f,(t)=>{ setImportText(t); setImportOpen(true); }); e.target.value=""; };
+  const openTagTxt=(e)=>{ const f=e.target.files&&e.target.files[0]; if(!f) return;
+    readTxt(f,(t)=>setTagImport({ raw:t })); e.target.value=""; };
+
+  const applyTagList=(raw,mode)=>{
+    const { rows,unknown }=parseTagList(raw,tags);
+    if(!rows.length){ say("No valid rows found."); return; }
+    let nextTags=tags.slice();
+    unknown.forEach((label)=>{
+      nextTags=nextTags.concat({ id:uid(), label, color:PALETTE[nextTags.length%PALETTE.length] });
+    });
+    const resolve=(label)=>(nextTags.find((t)=>t.label.toLowerCase()===label.toLowerCase())||nextTags[0]).id;
+    const incoming=rows.map((r)=>({
+      id:uid(), tagId:r.tagId||resolve(r.tagLabel), cueIds:[], start:r.start, end:r.end,
+      note:r.note, comments:[], annotations:[], status:r.status, due:r.due,
+    }));
+    let keep=markers;
+    if(mode==="replace"){
+      const hits=(m)=>{ const r=range(m); return incoming.some((n)=>n.start<r.end&&n.end>r.start); };
+      keep=markers.filter((m)=>!hits(m));
+    }
+    commit({ tags:nextTags, markers:keep.concat(incoming) });
+    setTagImport(null);
+    say("Added "+incoming.length+" tags"+(unknown.length?" · created "+unknown.length+" new tag type(s)":"")+".");
+  };
+
+  /* drag & drop anywhere */
+  useEffect(()=>{
+    const over=(e)=>{ e.preventDefault(); setDropping(true); };
+    const leave=(e)=>{ if(e.relatedTarget===null) setDropping(false); };
+    const drop=(e)=>{
+      e.preventDefault(); setDropping(false);
+      const f=e.dataTransfer.files&&e.dataTransfer.files[0]; if(!f) return;
+      const n=f.name.toLowerCase();
+      if(/\.(mp3|wav|m4a|aac|ogg|flac|mp4|mov|mkv|webm)$/.test(n)) return loadAudioFile(f);
+      if(/\.json$/.test(n)) return readTxt(f,(t)=>{ try{ const d=JSON.parse(t); if(!d.cues) throw 0;
+        d.id=d.id||uid(); setProjRaw(d); say("Loaded “"+(d.name||"project")+"”."); }catch(err){ say("Not a Dimna project file."); } });
+      if(/\.(txt|srt|vtt|md)$/.test(n)) return readTxt(f,(t)=>{
+        if(/^\s*[^|\n]+\|[^|\n]+\|/m.test(t) && !/-->/.test(t)) setTagImport({raw:t});
+        else { setImportText(t); setImportOpen(true); }
+      });
+      say("Unsupported file type.");
+    };
+    window.addEventListener("dragover",over); window.addEventListener("dragleave",leave); window.addEventListener("drop",drop);
+    return ()=>{ window.removeEventListener("dragover",over); window.removeEventListener("dragleave",leave); window.removeEventListener("drop",drop); };
+  },[proj]);
+
+  /* ---- exports ---- */
+  const dl=(name,text,mime)=>{
+    const url=URL.createObjectURL(new Blob([text],{type:mime}));
+    const a=document.createElement("a"); a.href=url; a.download=name; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  };
+  const slug=()=>proj.name.replace(/\s+/g,"-");
+  const exportBrief=()=>{
+    let out="# "+proj.name+"\n\n"+sorted.length+" shots · "+fps+" fps"+(proj.audioName?" · "+proj.audioName:"")+"\n";
+    if(proj.startDate||proj.dueDate) out+="Schedule: "+(proj.startDate||"?")+" → "+(proj.dueDate||"?")+"\n";
+    out+="\n---\n\n";
+    groups.forEach((gr,i)=>{
+      out+="## "+(i+1)+". "+tc(gr.start,fps)+" → "+tc(gr.end,fps)+"\n\n";
+      const texts=(gr.items[0].cueIds||[]).map((id)=>(cues[cueIndex[id]]||{}).text).filter(Boolean);
+      if(texts.length) out+="Script: "+texts.join(" ")+"\n\n";
+      gr.items.forEach((m)=>{
+        out+="- **"+tagOf(m.tagId).label+"** ["+(STATUS.find((s)=>s.id===(m.status||"todo"))||{}).label+
+             (m.due?" · due "+m.due:"")+"] — "+(m.note||"(no brief yet)")+"\n";
+        (m.comments||[]).forEach((c)=>out+="    - "+c.text+"\n");
+        (m.annotations||[]).forEach((a)=>{
+          const c=cues[cueIndex[a.cueId]];
+          if(c) out+="    - “"+c.text.slice(a.s,a.e)+"” → "+(a.note||a.style)+"\n";
+        });
+      });
+      out+="\n";
+    });
+    dl(slug()+"-brief.md",out,"text/markdown;charset=utf-8");
+  };
+  const exportCsv=()=>{
+    const esc=(s)=>'"'+String(s==null?"":s).replace(/"/g,'""')+'"';
+    const rows=[["Marker Name","Description","In","Out","Duration","Marker Type","Status","Due"]];
+    sorted.forEach((m,i)=>{ const r=range(m);
+      rows.push([(i+1)+" "+tagOf(m.tagId).label,m.note||"",tc(r.start,fps),tc(r.end,fps),
+                 tc(Math.max(0,r.end-r.start),fps),"Comment",(m.status||"todo"),m.due||""]); });
+    dl(slug()+"-markers.csv","\uFEFF"+rows.map((r)=>r.map(esc).join(",")).join("\n"),"text/csv;charset=utf-8");
+  };
+  const exportTagList=()=>{
+    let out="# Dimna tag list — "+proj.name+"\n# tag | start | end | status | due | note\n";
+    sorted.forEach((m)=>{ const r=range(m);
+      out+=[tagOf(m.tagId).label,clock(r.start),clock(r.end),(m.status||"todo"),(m.due||""),(m.note||"")].join(" | ")+"\n"; });
+    dl(slug()+"-tags.txt",out,"text/plain;charset=utf-8");
+  };
+  const exportProject=()=>dl(slug()+".dimna.json",JSON.stringify(proj,null,2),"application/json");
+  const importProject=(e)=>{ const f=e.target.files&&e.target.files[0]; if(!f) return;
+    readTxt(f,(t)=>{ try{ const d=JSON.parse(t); if(!d.cues) throw 0; d.id=d.id||uid();
+      setProjRaw(d); say("Loaded “"+(d.name||"project")+"”."); }catch(err){ say("Not a Dimna project file."); } });
+    e.target.value=""; };
+
+  const visibleCues=useMemo(()=>{
+    if(!query.trim()) return cues;
+    return cues.filter((c)=>c.text.indexOf(query.trim())!==-1);
+  },[cues,query]);
+
+  const selCount=sel.length;
+  const hasRegion=region&&Math.abs(region.b-region.a)>0.05;
+
+  /* ================= render ================= */
+  return (
+    <div style={{height:"100%",display:"flex",flexDirection:"column"}}>
+
+      <header style={{flex:"none",display:"flex",alignItems:"center",gap:11,padding:"8px 14px",
+                      background:"var(--panel)",borderBottom:"1px solid var(--line)",flexWrap:"wrap"}}>
+        <img src={LOGO} alt="دمنة" style={{height:24,opacity:.92}} />
+        <input value={proj.name} onChange={(e)=>patch({name:e.target.value})}
+          style={{background:"transparent",border:"1px solid transparent",borderRadius:6,
+                  padding:"4px 7px",fontSize:13,fontWeight:600,width:160}}
+          onFocus={(e)=>e.target.style.borderColor="var(--line)"}
+          onBlur={(e)=>e.target.style.borderColor="transparent"} />
+        <div style={{display:"flex",gap:3}}>
+          {[["script","Script"],["board","Board"],["calendar","Calendar"]].map(([k,l])=>(
+            <button key={k} className={"tab"+(view===k?" on":"")} onClick={()=>setView(k)}>{l}</button>
+          ))}
+        </div>
+        <div style={{flex:1}} />
+        <span className="mono" style={{color:"var(--dim)",fontSize:11}}>
+          {statusCounts.done}/{markers.length} done
+        </span>
+        <button className="btn btn-sm" onClick={()=>setProjOpen(true)}>Projects</button>
+        <button className="btn btn-sm" onClick={()=>setTagsOpen(true)}>Tags</button>
+        <button className="btn btn-sm" onClick={()=>txtRef.current&&txtRef.current.click()}>Import .txt</button>
+        <button className="btn btn-sm" onClick={()=>tagTxtRef.current&&tagTxtRef.current.click()}>Import tags</button>
+        <button className="btn btn-sm" onClick={exportBrief} disabled={!markers.length}>Brief</button>
+        <button className="btn btn-sm" onClick={()=>setCloudOpen(true)}
+          title={user?"Signed in as "+user.email:"Set up cloud sync"}
+          style={{borderColor:user?"var(--ok)":"var(--line)",color:user?"var(--ok)":"var(--muted)"}}>
+          {syncing?"Syncing…":user?"Cloud ✓":"Sign in"}
+        </button>
+        <button className="btn btn-sm btn-ghost" onClick={()=>setHelpOpen(true)} title="Formats & shortcuts">?</button>
+        <input ref={txtRef} type="file" accept=".txt,.srt,.vtt,.md,text/plain" onChange={openTxt} style={{display:"none"}} />
+        <input ref={tagTxtRef} type="file" accept=".txt,text/plain" onChange={openTagTxt} style={{display:"none"}} />
+        <input ref={jsonRef} type="file" accept=".json,application/json" onChange={importProject} style={{display:"none"}} />
+      </header>
+
+      {/* ---------- body ---------- */}
+      {view==="script" && (
+        <div ref={bodyRef} className="split" style={{flex:1,display:"flex",minHeight:0}}>
+          <section style={{flexBasis:ui.splitPct+"%",flexGrow:0,flexShrink:1,minWidth:260,
+                           display:"flex",flexDirection:"column",minHeight:0}}>
+            <div className="pane-head">
+              <h2>Script</h2>
+              <span style={{color:"var(--dim)",fontSize:12}}>
+                {cues.length?timedCount+" timed":"empty"}{selCount?" · "+selCount+" selected":""}
+              </span>
+              {selCount>0&&(
+                <>
+                  <button className="btn btn-xs btn-ghost" onClick={()=>setSel([])} style={{color:"var(--muted)"}}>clear</button>
+                  <button className="btn btn-xs btn-ghost" onClick={deleteSelected} style={{color:"var(--bad)"}}>delete</button>
+                </>
+              )}
+              <div style={{flex:1}} />
+              <button className="btn btn-xs btn-ghost" onClick={()=>setUi({scriptSize:clamp(ui.scriptSize-1,11,30)})}>A−</button>
+              <button className="btn btn-xs btn-ghost" onClick={()=>setUi({scriptSize:clamp(ui.scriptSize+1,11,30)})}>A+</button>
+              <button className="btn btn-sm btn-ghost" onClick={()=>setFollow((v)=>!v)}
+                style={{borderColor:follow?"var(--accent)":"var(--line)",color:follow?"var(--accent)":"var(--muted)"}}>Follow</button>
+              <input className="field" value={query} onChange={(e)=>setQuery(e.target.value)}
+                placeholder="Search…" dir="auto" style={{width:120,padding:"4px 9px",fontSize:12}} />
+            </div>
+            <div className="pane" ref={scriptPane}
+              onScroll={()=>{ if(Date.now()-autoScroll.current>900&&follow&&playing) setFollow(false); }}
+              style={{flex:1}}>
+              {cues.length===0?(
+                <div style={{color:"var(--dim)",lineHeight:1.9,maxWidth:440}}>
+                  <p>No script yet. Drop a .txt anywhere on the page, or:</p>
+                  <button className="btn btn-primary" onClick={()=>{setImportText("");setImportOpen(true);}}>Paste a script</button>
+                  <p style={{marginTop:16,fontSize:12}}>Press <b>?</b> in the header for the file formats.</p>
+                </div>
+              ):visibleCues.map((c)=>{
+                const i=cueIndex[c.id];
+                const isActive=i===activeIdx, isSel=sel.indexOf(c.id)>=0, isPast=activeIdx>=0&&i<activeIdx;
+                const mk=markersByCue[c.id]||[];
+                const anns=[]; mk.forEach((m)=>(m.annotations||[]).forEach((a)=>{ if(a.cueId===c.id) anns.push(a); }));
+                return (
+                  <div key={c.id} ref={(el)=>cueRefs.current[i]=el}
+                    className={"cue"+(isActive?" active":"")+(isSel?" sel":"")+(isPast?" past":"")+(c.kind==="head"?" head":"")}
+                    onClick={(e)=>editCue!==c.id&&clickCue(c,i,e)}
+                    onDoubleClick={()=>setEditCue(c.id)}>
+                    <span className="mono cue-time">{c.start!==null?clock(c.start+offset):"—"}</span>
+                    {editCue===c.id?(
+                      <CueEditor cue={c} onSave={saveCue} onCancel={()=>setEditCue(null)} size={ui.scriptSize} />
+                    ):(
+                      <span className="cue-text" dir={hasArabic(c.text)?"rtl":"ltr"}
+                        style={{textAlign:hasArabic(c.text)?"right":"left",
+                                fontSize:c.kind==="head"?ui.scriptSize+3:ui.scriptSize,
+                                fontStyle:c.kind==="note"?"italic":"normal",
+                                color:c.kind==="note"?"var(--muted)":undefined}}>
+                        <AnnotatedText text={c.text} anns={anns} />
+                        {mk.length>0&&(
+                          <span style={{display:"inline-flex",gap:4,marginInlineStart:9,verticalAlign:"middle"}}>
+                            {mk.map((m)=>{ const t=tagOf(m.tagId);
+                              return <span key={m.id} className="chip"
+                                onClick={(e)=>{e.stopPropagation();
+                                  setExpanded((g)=>Object.assign({},g,{[(m.cueIds||[]).slice().sort().join("|")||"free:"+m.id]:true}));}}
+                                style={{background:t.color+"22",color:t.color,cursor:"pointer",
+                                        opacity:(m.status||"todo")==="done"?.55:1}}>
+                                <span className="dot" style={{background:t.color}} />{t.label}
+                              </span>; })}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <div className="grip" onMouseDown={startSplit} />
+
+          <section style={{flex:1,minWidth:260,display:"flex",flexDirection:"column",minHeight:0}}>
+            <div className="pane-head">
+              <h2>Shot list</h2>
+              <span style={{color:"var(--dim)",fontSize:12}}>{markers.length}</span>
+              <div style={{flex:1}} />
+              {gaps.length>0&&(
+                <button className="btn btn-xs btn-ghost" onClick={()=>setGapsOpen((v)=>!v)}
+                  style={{borderColor:gapsOpen?"var(--warn)":"var(--line)",color:"var(--warn)"}}>
+                  {gaps.length} gap{gaps.length>1?"s":""}
+                </button>
+              )}
+              {STATUS.map((s)=>statusCounts[s.id]>0?(
+                <button key={s.id} className="btn btn-xs btn-ghost"
+                  onClick={()=>setStatusFilter(statusFilter===s.id?null:s.id)}
+                  style={{borderColor:statusFilter===s.id?s.color:"var(--line)",
+                          color:statusFilter===s.id?s.color:"var(--muted)"}}>
+                  {s.label} {statusCounts[s.id]}
+                </button>
+              ):null)}
+              <button className="btn btn-xs btn-ghost" onClick={exportTagList} disabled={!markers.length}
+                style={{color:"var(--dim)"}}>export .txt</button>
+            </div>
+            <div className="pane" style={{flex:1}}>
+              {gapsOpen&&(
+                <div className="enter" style={{background:"var(--panel)",border:"1px solid var(--line)",
+                  borderInlineStart:"3px solid var(--warn)",borderRadius:8,padding:11,marginBottom:10}}>
+                  <div style={{fontSize:12,color:"var(--muted)",marginBottom:7}}>Over 20s with nothing tagged.</div>
+                  {gaps.map((g,i)=>(
+                    <button key={i} className="btn btn-xs btn-ghost mono"
+                      onClick={()=>{ seek(g[0]); setRegion({a:g[0],b:g[1]}); }}
+                      style={{marginRight:6,marginBottom:5}}>
+                      {clock(g[0])} – {clock(g[1])} · {Math.round(g[1]-g[0])}s
+                    </button>
+                  ))}
+                </div>
+              )}
+              {groups.length===0?(
+                <div style={{color:"var(--dim)",lineHeight:1.9,maxWidth:400}}>
+                  <p>Nothing tagged yet.</p>
+                  <p>Select lines and press a number key, or drag a region on the waveform and tag that.</p>
+                </div>
+              ):groups.map((gr,gi)=>(
+                <GroupCard key={gr.key} gr={gr} gi={gi} tags={tags} tagOf={tagOf} fps={fps}
+                  cues={cues} cueIndex={cueIndex} expanded={!!expanded[gr.key]}
+                  onToggle={()=>setExpanded((g)=>Object.assign({},g,{[gr.key]:!g[gr.key]}))}
+                  onSeek={seek} onSelectLines={(ids)=>setSel(ids)} flash={flash}
+                  onUpdate={updMarker} onDelete={delMarker}
+                  onAddComment={addComment} onDelComment={delComment}
+                  onAddAnnotation={addAnnotation} onDelAnnotation={delAnnotation} />
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {view==="board" && (
+        <Board markers={sorted} tagOf={tagOf} range={range} fps={fps} onUpdate={updMarker}
+          onSeek={(t)=>{ setView("script"); setTimeout(()=>seek(t),50); }} cues={cues} cueIndex={cueIndex} />
+      )}
+
+      {view==="calendar" && (
+        <Calendar projects={projects} current={proj} onOpenProject={(p)=>{setProjRaw(p);setView("script");}}
+          onPatch={patch} />
+      )}
+
+      {/* ---------- transport ---------- */}
+      <footer style={{flex:"none",background:"var(--panel)",borderTop:"1px solid var(--line)"}}>
+        <div className="grip-h" onMouseDown={startWaveResize} title="Drag to resize the waveform" />
+        <div ref={waveWrap} onMouseDown={waveDown} onWheel={waveWheel}
+          onMouseMove={(e)=>{ const r=e.currentTarget.getBoundingClientRect(); setHoverX({x:e.clientX-r.left,t:waveT(e.clientX)}); }}
+          onMouseLeave={()=>setHoverX(null)}
+          style={{position:"relative",height:ui.waveH,background:"#100E0B",
+                  borderBottom:"1px solid var(--line)",cursor:duration?"text":"default",overflow:"hidden",
+                  userSelect:"none"}}>
+          <canvas ref={canvasRef} style={{display:"block",position:"absolute",inset:0}} />
+          {duration>0&&(()=>{
+            const win=duration/zoom, vs=clamp(viewStart,0,Math.max(0,duration-win));
+            const pct=((time-vs)/win)*100;
+            return pct>=-1&&pct<=101?(
+              <div style={{position:"absolute",left:pct+"%",top:0,bottom:0,width:2,marginLeft:-1,
+                           background:"#FFF3DE",boxShadow:"0 0 8px rgba(255,243,222,.55)"}} />
+            ):null;
+          })()}
+          {hoverX&&duration>0&&(
+            <div className="mono" style={{position:"absolute",left:hoverX.x,top:5,transform:"translateX(-50%)",
+              background:"var(--raise)",border:"1px solid var(--line2)",borderRadius:4,
+              padding:"1px 6px",fontSize:11,pointerEvents:"none"}}>{clock(hoverX.t)}</div>
+          )}
+          {!wave&&(
+            <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",
+                         justifyContent:"center",color:"var(--dim)",fontSize:12}}>
+              {waveBusy?"Reading waveform…":"Load audio to see the waveform"}
+            </div>
+          )}
+        </div>
+
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",flexWrap:"wrap"}}>
+          <button className="btn btn-primary" onClick={toggle} disabled={!audioUrl} style={{minWidth:72}}>
+            {playing?"Pause":"Play"}
+          </button>
+          <span className="mono" style={{fontSize:18}}>{tc(time,fps)}</span>
+          <span className="mono" style={{color:"var(--dim)",fontSize:12}}>{clock(duration)}</span>
+
+          <div style={{width:1,height:22,background:"var(--line)",margin:"0 2px"}} />
+
+          {hasRegion&&(
+            <span className="chip enter" style={{background:"var(--raise)",color:"var(--text)",fontSize:12,padding:"4px 10px"}}>
+              region {clock(Math.min(region.a,region.b))}–{clock(Math.max(region.a,region.b))}
+              <button className="btn btn-xs btn-ghost" onClick={()=>setRegion(null)} style={{color:"var(--dim)"}}>✕</button>
+            </span>
+          )}
+
+          {tags.map((t,i)=>(
+            <button key={t.id} className="btn" onClick={()=>addMarker(t.id)}
+              title={hasRegion?"Tag the selected waveform region":selCount?"Tag "+selCount+" selected lines":"Tag the line that's playing"}
+              style={{borderColor:t.color+"77",color:t.color,background:"transparent",
+                      display:"flex",alignItems:"center",gap:7,fontWeight:500}}>
+              <span className="dot" style={{background:t.color}} />{t.label}
+              {i<9&&<span className="mono" style={{fontSize:10,color:"var(--dim)",
+                border:"1px solid var(--line)",borderRadius:3,padding:"0 4px"}}>{i+1}</span>}
+            </button>
+          ))}
+
+          <div style={{flex:1}} />
+
+          <span style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"var(--muted)"}}>
+            Zoom
+            <button className="btn btn-xs btn-ghost" onClick={()=>setZoom((z)=>clamp(z/1.6,1,120))} disabled={zoom<=1}>−</button>
+            <span className="mono" style={{minWidth:32,textAlign:"center"}}>{zoom<1.05?"fit":Math.round(zoom)+"×"}</span>
+            <button className="btn btn-xs btn-ghost" onClick={()=>setZoom((z)=>clamp(z*1.6,1,120))}>+</button>
+          </span>
+          <span style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:"var(--muted)"}}>
+            Sync
+            <input className="field mono" type="number" step="0.1" value={offset}
+              onChange={(e)=>patch({offset:+e.target.value||0})}
+              style={{width:62,padding:"3px 6px",fontSize:12,textAlign:"center"}} />
+          </span>
+          <button className="btn btn-sm btn-ghost" onClick={()=>setShowSilence((v)=>!v)}
+            style={{borderColor:showSilence?"var(--warn)":"var(--line)",color:showSilence?"var(--warn)":"var(--muted)"}}>
+            Silence
+          </button>
+          <select className="btn btn-sm" value={rate} onChange={(e)=>{const r=+e.target.value;setRate(r);
+            if(audioRef.current)audioRef.current.playbackRate=r;}}>
+            {[0.5,0.75,1,1.25,1.5,1.75,2].map((r)=><option key={r} value={r}>{r}×</option>)}
+          </select>
+          <select className="btn btn-sm" value={fps} onChange={(e)=>patch({fps:+e.target.value})}>
+            {[23.976,24,25,29.97,30,50,60].map((f)=><option key={f} value={f}>{f} fps</option>)}
+          </select>
+          <button className="btn btn-sm" onClick={()=>fileRef.current&&fileRef.current.click()}>
+            {audioUrl?"Change audio":"Load audio"}
+          </button>
+          {user&&!audioUrl&&proj.cloudAudio&&(
+            <button className="btn btn-sm" style={{borderColor:"var(--ok)",color:"var(--ok)"}}
+              onClick={()=>fetchCloudAudio(proj)}>Get audio from cloud</button>
+          )}
+          {user&&audioUrl&&!audioUploaded&&(
+            <button className="btn btn-sm" style={{borderColor:"var(--ok)",color:"var(--ok)"}}
+              onClick={()=>audioFileRef.current&&uploadAudio(audioFileRef.current,proj)}>Upload audio</button>
+          )}
+          <input ref={fileRef} type="file" accept="audio/*,video/*" onChange={openAudio} style={{display:"none"}} />
+        </div>
+
+        {audioUrl&&(
+          <audio ref={audioRef} src={audioUrl}
+            onTimeUpdate={(e)=>setTime(e.target.currentTime)}
+            onLoadedMetadata={(e)=>{setDuration(e.target.duration);e.target.playbackRate=rate;}}
+            onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onEnded={()=>setPlaying(false)} />
+        )}
+      </footer>
+
+      {/* ---------- modals ---------- */}
+      {importOpen&&<ImportModal text={importText} setText={setImportText}
+        onClose={()=>setImportOpen(false)} onApply={applyScript} />}
+      {tagImport&&<TagImportModal raw={tagImport.raw} tags={tags}
+        onClose={()=>setTagImport(null)} onApply={applyTagList} />}
+      {tagsOpen&&<TagModal tags={tags} counts={counts} onClose={()=>setTagsOpen(false)}
+        onChange={(next,removed)=>commit({tags:next,
+          markers:removed.length?markers.filter((m)=>removed.indexOf(m.tagId)===-1):markers})} />}
+      {projOpen&&<ProjectModal projects={projects} current={proj} onClose={()=>setProjOpen(false)}
+        onPatch={patch}
+        onOpen={(p)=>{setProjRaw(p);setProjOpen(false);setSel([]);setWave(null);setAudioUrl(null);
+                      setAudioUploaded(false); if(user&&p.cloudAudio) setTimeout(()=>fetchCloudAudio(p),250);}}
+        onNew={()=>{const p=blankProject("Untitled "+(Object.keys(projects).length+1));
+                    setProjRaw(p);setProjOpen(false);setSel([]);setWave(null);setAudioUrl(null);}}
+        onDuplicate={()=>{setProjRaw(Object.assign({},proj,{id:uid(),name:proj.name+" copy"}));setProjOpen(false);}}
+        onDelete={(id)=>{const all=readAll();delete all[id];writeAll(all);setProjects(all);
+                         if(id===proj.id) setProjRaw(blankProject("Untitled"));}}
+        onExport={exportProject} onImportClick={()=>jsonRef.current&&jsonRef.current.click()} />}
+      {cloudOpen&&<CloudModal cfg={cloudCfg} sb={sb} user={user} autoUpload={autoUpload}
+        onAuto={(v)=>{ setAutoUpload(v); localStorage.setItem("dimna:autoup",v?"1":"0"); }}
+        onSaveCfg={(c)=>{ writeCloudCfg(c); setCloudCfg(c); }}
+        onSignedIn={()=>{ setCloudOpen(false); setTimeout(()=>pullCloud(),400); }}
+        onSignOut={async()=>{ if(sb) await sb.auth.signOut(); setUser(null); say("Signed out."); }}
+        onSync={()=>{ setCloudOpen(false); pullCloud(); }}
+        onClose={()=>setCloudOpen(false)} />}
+      {helpOpen&&<HelpModal onClose={()=>setHelpOpen(false)} />}
+
+      {dropping&&<div className="drop"><div style={{textAlign:"center"}}>
+        <div style={{fontSize:18,fontWeight:600,marginBottom:6}}>Drop it</div>
+        <div style={{color:"var(--muted)",fontSize:13}}>audio · .txt / .srt script · tag list · .json project</div>
+      </div></div>}
+
+      {toast&&<div className="toast enter">{toast}</div>}
+    </div>
+  );
+}
+
+/* =============== annotated text =============== */
+function AnnotatedText({ text, anns }) {
+  if(!anns||!anns.length) return <>{text}</>;
+  return <>{segments(text,anns).map((sg,i)=>{
+    if(!sg.anns.length) return <React.Fragment key={i}>{sg.text}</React.Fragment>;
+    const a=sg.anns[sg.anns.length-1];
+    const st={ };
+    if(a.style==="highlight") st.background=a.color+"55";
+    if(a.style==="underline") st.borderBottom="2px solid "+a.color;
+    if(a.style==="strike") { st.textDecoration="line-through"; st.textDecorationColor=a.color; }
+    return <span key={i} className="ann" style={st}
+      title={sg.anns.map((x)=>x.note||x.style).join(" · ")}>{sg.text}</span>;
+  })}</>;
+}
+
+/* =============== group card =============== */
+function GroupCard(props){
+  const { gr,gi,tags,tagOf,fps,cues,cueIndex,expanded,onToggle,onSeek,onSelectLines,flash,
+          onUpdate,onDelete,onAddComment,onDelComment,onAddAnnotation,onDelAnnotation } = props;
+  const multi=gr.items.length>1;
+  const open=expanded||!multi;
+  const cueIds=gr.items[0].cueIds||[];
+  const lines=cueIds.map((id)=>cues[cueIndex[id]]).filter(Boolean);
+  const span=tc(gr.start,fps)+(gr.end>gr.start+0.05?"  →  "+tc(gr.end,fps):"");
+  const allDone=gr.items.every((m)=>(m.status||"todo")==="done");
+
+  return (
+    <div className="enter" style={{background:"var(--panel)",border:"1px solid var(--line)",
+      borderInlineStart:"3px solid "+(multi?"var(--accent)":tagOf(gr.items[0].tagId).color),
+      borderRadius:8,padding:11,marginBottom:8,opacity:allDone?.72:1}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <span className="mono" style={{color:"var(--dim)",fontSize:11,minWidth:15}}>{gi+1}</span>
+        <button className="btn btn-xs btn-ghost mono" onClick={()=>onSeek(gr.start)} style={{fontSize:12}}>{span}</button>
+        {multi&&(
+          <button className="btn btn-xs btn-ghost" onClick={onToggle} style={{color:"var(--accent)"}}>
+            {open?"▾":"▸"} {gr.items.length} tags
+          </button>
+        )}
+        {!open&&multi&&(
+          <span style={{display:"inline-flex",gap:4}}>
+            {gr.items.map((m)=><span key={m.id} className="dot"
+              style={{background:tagOf(m.tagId).color,width:9,height:9}} />)}
+          </span>
+        )}
+        <div style={{flex:1}} />
+        {cueIds.length>0&&(
+          <button className="btn btn-xs btn-ghost" style={{color:"var(--dim)"}}
+            onClick={()=>onSelectLines(cueIds)}>select lines</button>
+        )}
+      </div>
+
+      {lines.length>0&&(
+        <AnnotatableLines lines={lines} marker={gr.items[0]} open={open}
+          onAddAnnotation={onAddAnnotation} onDelAnnotation={onDelAnnotation} />
+      )}
+
+      {open&&gr.items.map((m)=>(
+        <MarkerBlock key={m.id} m={m} tags={tags} tagOf={tagOf} flash={flash===m.id}
+          onUpdate={onUpdate} onDelete={onDelete}
+          onAddComment={onAddComment} onDelComment={onDelComment}
+          annotations={(m.annotations||[])} onDelAnnotation={onDelAnnotation}
+          cues={cues} cueIndex={cueIndex} />
+      ))}
+    </div>
+  );
+}
+
+/* =============== annotatable script lines =============== */
+function AnnotatableLines({ lines, marker, open, onAddAnnotation, onDelAnnotation }){
+  const ref=useRef(null);
+  const [tool,setTool]=useState(null);   // {cueId,s,e,x,y}
+  const [noteFor,setNoteFor]=useState(null);
+  const [noteText,setNoteText]=useState("");
+
+  const grab=(e)=>{
+    if(!open) return;
+    const selection=window.getSelection();
+    if(!selection||selection.isCollapsed){ setTool(null); return; }
+    let node=selection.anchorNode;
+    let holder=node&&node.nodeType===3?node.parentElement:node;
+    while(holder&&!holder.dataset.cueid) holder=holder.parentElement;
+    if(!holder){ setTool(null); return; }
+    const r=selection.getRangeAt(0);
+    const s=offsetIn(holder,r.startContainer,r.startOffset);
+    const en=offsetIn(holder,r.endContainer,r.endOffset);
+    if(en-s<1){ setTool(null); return; }
+    const box=ref.current.getBoundingClientRect();
+    setTool({ cueId:holder.dataset.cueid, s:Math.min(s,en), e:Math.max(s,en),
+              x:e.clientX-box.left, y:e.clientY-box.top });
+  };
+
+  const apply=(style,color)=>{
+    if(!tool) return;
+    onAddAnnotation(marker,{ cueId:tool.cueId, s:tool.s, e:tool.e, style, color, note:"" });
+    window.getSelection().removeAllRanges();
+    setTool(null);
+  };
+  const applyWithNote=()=>{
+    if(!tool||!noteText.trim()) return;
+    onAddAnnotation(marker,{ cueId:tool.cueId, s:tool.s, e:tool.e, style:"highlight",
+                             color:HL[0], note:noteText.trim() });
+    window.getSelection().removeAllRanges();
+    setNoteFor(null); setNoteText(""); setTool(null);
+  };
+
+  const anns=(marker.annotations||[]);
+  return (
+    <div ref={ref} style={{position:"relative",marginTop:8}} onMouseUp={grab}>
+      {lines.map((c)=>(
+        <div key={c.id} data-cueid={c.id} dir={hasArabic(c.text)?"rtl":"ltr"}
+          style={{fontSize:15,color:"var(--muted)",lineHeight:1.95,
+                  textAlign:hasArabic(c.text)?"right":"left"}}>
+          <AnnotatedText text={c.text} anns={anns.filter((a)=>a.cueId===c.id)} />
+        </div>
+      ))}
+
+      {anns.length>0&&open&&(
+        <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:6}}>
+          {anns.map((a)=>(
+            <span key={a.id} className="chip" title={a.note||a.style}
+              style={{background:a.color+"22",color:a.color,fontSize:10}}>
+              {a.note?a.note.slice(0,26):a.style}
+              <button className="btn btn-xs btn-ghost" style={{color:"inherit",padding:"0 3px"}}
+                onClick={()=>onDelAnnotation(marker,a.id)}>✕</button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {tool&&(
+        <div className="enter" style={{position:"absolute",left:clamp(tool.x-90,0,400),top:tool.y+10,zIndex:30,
+          background:"var(--raise)",border:"1px solid var(--line2)",borderRadius:8,padding:6,
+          display:"flex",gap:5,alignItems:"center",boxShadow:"0 8px 24px rgba(0,0,0,.5)"}}>
+          {HL.map((c)=>(
+            <button key={c} onClick={()=>apply("highlight",c)} title="Highlight"
+              style={{width:18,height:18,borderRadius:4,background:c,border:"none",padding:0}} />
+          ))}
+          <button className="btn btn-xs btn-ghost" onClick={()=>apply("underline",HL[2])} title="Underline"
+            style={{textDecoration:"underline"}}>U</button>
+          <button className="btn btn-xs btn-ghost" onClick={()=>apply("strike",HL[3])} title="Strikethrough"
+            style={{textDecoration:"line-through"}}>S</button>
+          <button className="btn btn-xs btn-ghost" onClick={()=>setNoteFor(true)} title="Highlight with a note">note</button>
+          <button className="btn btn-xs btn-ghost" onClick={()=>setTool(null)} style={{color:"var(--dim)"}}>✕</button>
+        </div>
+      )}
+      {tool&&noteFor&&(
+        <div className="enter" style={{position:"absolute",left:clamp(tool.x-110,0,380),top:tool.y+52,zIndex:31,
+          background:"var(--raise)",border:"1px solid var(--line2)",borderRadius:8,padding:8,width:250,
+          boxShadow:"0 8px 24px rgba(0,0,0,.5)"}}>
+          <input className="field" autoFocus value={noteText} onChange={(e)=>setNoteText(e.target.value)}
+            onKeyDown={(e)=>{ if(e.key==="Enter") applyWithNote(); if(e.key==="Escape"){setNoteFor(null);setTool(null);} }}
+            placeholder="Note on this phrase…" dir="auto" style={{padding:"5px 8px",fontSize:13}} />
+          <div style={{display:"flex",gap:6,marginTop:6}}>
+            <button className="btn btn-xs btn-primary" onClick={applyWithNote}>Add</button>
+            <span style={{color:"var(--dim)",fontSize:11,alignSelf:"center"}}>enter saves</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =============== marker block =============== */
+function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onDelComment }){
+  const t=tagOf(m.tagId);
+  const [editingNote,setEditingNote]=useState(false);
+  const [draft,setDraft]=useState(m.note||"");
+  const [newComment,setNewComment]=useState("");
+  const st=STATUS.find((s)=>s.id===(m.status||"todo"))||STATUS[0];
+
+  const saveNote=()=>{ onUpdate(m.id,{note:draft}); setEditingNote(false); };
+
+  return (
+    <div className={flash?"pop":""} style={{marginTop:9,paddingTop:9,borderTop:"1px solid var(--line)"}}>
+      <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+        <select className="btn btn-xs btn-ghost" value={m.tagId}
+          onChange={(e)=>onUpdate(m.id,{tagId:e.target.value})}
+          style={{color:t.color,borderColor:t.color+"55"}}>
+          {tags.map((x)=><option key={x.id} value={x.id} style={{color:"#000"}}>{x.label}</option>)}
+        </select>
+        <select className="btn btn-xs btn-ghost" value={m.status||"todo"}
+          onChange={(e)=>onUpdate(m.id,{status:e.target.value})}
+          style={{color:st.color,borderColor:st.color+"55"}}>
+          {STATUS.map((s)=><option key={s.id} value={s.id} style={{color:"#000"}}>{s.label}</option>)}
+        </select>
+        <input className="field mono" type="date" value={m.due||""}
+          onChange={(e)=>onUpdate(m.id,{due:e.target.value})}
+          style={{width:132,padding:"2px 6px",fontSize:11,
+                  color:m.due&&m.due<today()&&(m.status||"todo")!=="done"?"var(--bad)":"var(--muted)"}} />
+        <div style={{flex:1}} />
+        <button className="btn btn-xs btn-ghost" style={{color:"var(--muted)"}}
+          onClick={()=>{setDraft(m.note||"");setEditingNote((v)=>!v);}}>
+          {editingNote?"cancel":m.note?"edit":"brief"}
+        </button>
+        <button className="btn btn-xs btn-ghost" style={{color:"var(--dim)"}}
+          onClick={()=>onDelete(m.id)}>✕</button>
+      </div>
+
+      {editingNote?(
+        <textarea autoFocus className="field fade" value={draft}
+          onChange={(e)=>setDraft(e.target.value)}
+          onKeyDown={(e)=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();saveNote();}
+                            if(e.key==="Escape") setEditingNote(false); }}
+          onBlur={saveNote}
+          dir={hasArabic(draft)?"rtl":"ltr"}
+          placeholder="What this shot needs — enter saves, shift+enter for a new line"
+          style={{marginTop:8,minHeight:68}} />
+      ):m.note?(
+        <div dir={hasArabic(m.note)?"rtl":"ltr"} onDoubleClick={()=>{setDraft(m.note);setEditingNote(true);}}
+          style={{marginTop:6,fontSize:14,lineHeight:1.8,cursor:"text"}}>{m.note}</div>
+      ):null}
+
+      {(m.comments||[]).length>0&&(
+        <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:5}}>
+          {(m.comments||[]).map((c)=>(
+            <div key={c.id} style={{display:"flex",gap:7,alignItems:"flex-start",
+              background:"var(--bg)",border:"1px solid var(--line)",borderRadius:6,padding:"6px 9px"}}>
+              <span dir={hasArabic(c.text)?"rtl":"ltr"} style={{flex:1,fontSize:13,lineHeight:1.7}}>{c.text}</span>
+              <button className="btn btn-xs btn-ghost" style={{color:"var(--dim)"}}
+                onClick={()=>onDelComment(m,c.id)}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <input className="field" value={newComment} onChange={(e)=>setNewComment(e.target.value)}
+        onKeyDown={(e)=>{ if(e.key==="Enter"){ e.preventDefault(); onAddComment(m,newComment); setNewComment(""); } }}
+        placeholder="Add a comment — enter to post" dir="auto"
+        style={{marginTop:7,padding:"5px 9px",fontSize:12}} />
+    </div>
+  );
+}
+
+/* =============== board =============== */
+function Board({ markers,tagOf,range,fps,onUpdate,onSeek,cues,cueIndex }){
+  return (
+    <div style={{flex:1,display:"flex",gap:12,padding:14,minHeight:0,overflowX:"auto"}}>
+      {STATUS.map((s)=>{
+        const list=markers.filter((m)=>(m.status||"todo")===s.id);
+        return (
+          <div key={s.id} className="col" style={{flex:"1 1 0",minWidth:250}}>
+            <div className="pane-head">
+              <span className="dot" style={{background:s.color,width:9,height:9}} />
+              <h2>{s.label}</h2>
+              <span className="mono" style={{color:"var(--dim)",fontSize:11}}>{list.length}</span>
+            </div>
+            <div className="pane" style={{flex:1}}>
+              {list.length===0&&<p style={{color:"var(--dim)",fontSize:12}}>Nothing here.</p>}
+              {list.map((m)=>{
+                const t=tagOf(m.tagId), r=range(m);
+                const texts=(m.cueIds||[]).map((id)=>(cues[cueIndex[id]]||{}).text).filter(Boolean);
+                const late=m.due&&m.due<today()&&s.id!=="done";
+                return (
+                  <div key={m.id} className="card enter" style={{borderInlineStart:"3px solid "+t.color}}>
+                    <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+                      <span className="chip" style={{background:t.color+"22",color:t.color}}>
+                        <span className="dot" style={{background:t.color}} />{t.label}
+                      </span>
+                      <button className="btn btn-xs btn-ghost mono" onClick={()=>onSeek(r.start)}
+                        style={{fontSize:11}}>{clock(r.start)}</button>
+                      <div style={{flex:1}} />
+                      {m.due&&<span className="mono" style={{fontSize:10,color:late?"var(--bad)":"var(--dim)"}}>{m.due}</span>}
+                    </div>
+                    {m.note&&<div dir={hasArabic(m.note)?"rtl":"ltr"}
+                      style={{marginTop:7,fontSize:13,lineHeight:1.7}}>{m.note}</div>}
+                    {!m.note&&texts.length>0&&<div dir={hasArabic(texts[0])?"rtl":"ltr"}
+                      style={{marginTop:7,fontSize:13,color:"var(--muted)",lineHeight:1.8}}>{texts.join(" ").slice(0,120)}</div>}
+                    <div style={{display:"flex",gap:5,marginTop:8}}>
+                      {STATUS.filter((x)=>x.id!==s.id).map((x)=>(
+                        <button key={x.id} className="btn btn-xs btn-ghost"
+                          onClick={()=>onUpdate(m.id,{status:x.id})}
+                          style={{color:x.color,borderColor:x.color+"44"}}>→ {x.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* =============== calendar =============== */
+function Calendar({ projects,current,onOpenProject,onPatch }){
+  const [cursor,setCursor]=useState(()=>{ const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),1); });
+  const all=Object.values(projects);
+  const list=all.length?all:[current];
+
+  const y=cursor.getFullYear(), mo=cursor.getMonth();
+  const first=new Date(y,mo,1), startDow=(first.getDay()+6)%7;   // Monday first
+  const days=new Date(y,mo+1,0).getDate();
+  const cells=[];
+  for(let i=0;i<startDow;i++) cells.push(null);
+  for(let d=1;d<=days;d++) cells.push(new Date(y,mo,d));
+  while(cells.length%7) cells.push(null);
+
+  const iso=localISO;
+  const tasksOn=(d)=>{
+    const key=iso(d); if(!key) return [];
+    const out=[];
+    list.forEach((p)=>(p.markers||[]).forEach((m)=>{
+      if(m.due===key) out.push({ p, m, tag:(p.tags||[]).find((t)=>t.id===m.tagId) });
+    }));
+    return out;
+  };
+  const rangesOn=(d)=>{
+    const key=iso(d); if(!key) return [];
+    return list.filter((p)=>p.startDate&&p.dueDate&&key>=p.startDate&&key<=p.dueDate);
+  };
+
+  return (
+    <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
+      <div className="pane-head">
+        <button className="btn btn-sm btn-ghost" onClick={()=>setCursor(new Date(y,mo-1,1))}>←</button>
+        <h2 style={{minWidth:150}}>{cursor.toLocaleString("en",{month:"long",year:"numeric"})}</h2>
+        <button className="btn btn-sm btn-ghost" onClick={()=>setCursor(new Date(y,mo+1,1))}>→</button>
+        <button className="btn btn-sm btn-ghost" onClick={()=>{const d=new Date();setCursor(new Date(d.getFullYear(),d.getMonth(),1));}}>Today</button>
+        <div style={{flex:1}} />
+        <span style={{fontSize:12,color:"var(--muted)"}}>This project:</span>
+        <input className="field mono" type="date" value={current.startDate||""}
+          onChange={(e)=>onPatch({startDate:e.target.value})} style={{width:140,padding:"3px 7px",fontSize:12}} />
+        <span style={{color:"var(--dim)"}}>→</span>
+        <input className="field mono" type="date" value={current.dueDate||""}
+          onChange={(e)=>onPatch({dueDate:e.target.value})} style={{width:140,padding:"3px 7px",fontSize:12}} />
+      </div>
+      <div className="pane" style={{flex:1}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:5,marginBottom:6}}>
+          {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d)=>(
+            <div key={d} style={{fontSize:11,color:"var(--dim)",textAlign:"center",padding:"2px 0"}}>{d}</div>
+          ))}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:5}}>
+          {cells.map((d,i)=>{
+            const tasks=tasksOn(d), ranges=rangesOn(d);
+            const isToday=d&&iso(d)===today();
+            return (
+              <div key={i} className={"cal-day"+(!d?" dim":"")+(isToday?" today":"")}>
+                {d&&<div className="mono" style={{fontSize:11,color:isToday?"var(--accent)":"var(--dim)"}}>{d.getDate()}</div>}
+                {ranges.map((p)=>(
+                  <div key={p.id} onClick={()=>onOpenProject(p)} title={p.name}
+                    style={{height:3,borderRadius:2,background:"var(--accent)",opacity:.55,cursor:"pointer"}} />
+                ))}
+                {tasks.slice(0,4).map(({p,m,tag})=>(
+                  <div key={m.id} onClick={()=>onOpenProject(p)} title={(m.note||tag&&tag.label||"task")+" — "+p.name}
+                    style={{fontSize:10,padding:"1px 5px",borderRadius:4,cursor:"pointer",
+                            background:(tag?tag.color:"#999")+"26",color:tag?tag.color:"var(--muted)",
+                            overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",
+                            opacity:(m.status||"todo")==="done"?.5:1,
+                            textDecoration:(m.status||"todo")==="done"?"line-through":"none"}}>
+                    {m.note?m.note.slice(0,22):(tag?tag.label:"task")}
+                  </div>
+                ))}
+                {tasks.length>4&&<div style={{fontSize:10,color:"var(--dim)"}}>+{tasks.length-4} more</div>}
+              </div>
+            );
+          })}
+        </div>
+        <p style={{color:"var(--dim)",fontSize:12,marginTop:14}}>
+          Every project you've saved in this browser shows here. Set a due date on any shot and it lands on this grid.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* =============== cue editor =============== */
+function CueEditor({ cue,onSave,onCancel,size }){
+  const [text,setText]=useState(cue.text);
+  const [start,setStart]=useState(cue.start!==null?clock(cue.start):"");
+  return (
+    <span style={{flex:1}} onClick={(e)=>e.stopPropagation()}>
+      <textarea autoFocus className="field" value={text} dir={hasArabic(text)?"rtl":"ltr"}
+        onChange={(e)=>setText(e.target.value)}
+        onKeyDown={(e)=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();onSave(cue.id,text,parseTime(start));}
+                          if(e.key==="Escape") onCancel(); }}
+        style={{fontSize:size,minHeight:60,textAlign:hasArabic(text)?"right":"left"}} />
+      <span style={{display:"flex",gap:7,marginTop:6,alignItems:"center"}}>
+        <input className="field mono" value={start} onChange={(e)=>setStart(e.target.value)}
+          placeholder="0:00" style={{width:76,padding:"3px 7px",fontSize:12}} />
+        <button className="btn btn-xs btn-primary" onClick={()=>onSave(cue.id,text,parseTime(start))}>Save</button>
+        <button className="btn btn-xs btn-ghost" onClick={onCancel} style={{color:"var(--muted)"}}>Cancel</button>
+        <span style={{color:"var(--dim)",fontSize:11}}>enter saves · esc cancels</span>
+      </span>
+    </span>
+  );
+}
+
+/* =============== import modals =============== */
+function ImportModal({ text,setText,onApply,onClose }){
+  const [fill,setFill]=useState(true);
+  const preview=useMemo(()=>parseScript(text,fill),[text,fill]);
+  const timed=preview.filter((c)=>c.start!==null).length;
+  const heads=preview.filter((c)=>c.kind==="head").length;
+  const stretched=preview.filter((c)=>c.origEnd!==null&&c.end!==null&&c.end>c.origEnd+0.05).length;
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal enter" onClick={(e)=>e.stopPropagation()}>
+        <div className="pane-head"><h2>Import script</h2><div style={{flex:1}} />
+          <button className="btn btn-xs btn-ghost" onClick={onClose}>✕</button></div>
+        <div style={{padding:16,overflowY:"auto"}}>
+          <textarea className="field" value={text} onChange={(e)=>setText(e.target.value)}
+            dir={hasArabic(text)?"rtl":"ltr"} autoFocus
+            placeholder={"# الخلفية\n\n00:00:00\n00:00:04\nفي بداية القرن التاسع عشر…"}
+            style={{minHeight:230,fontSize:14,lineHeight:1.85}} />
+          <label style={{display:"flex",alignItems:"center",gap:8,marginTop:10,fontSize:13,color:"var(--muted)"}}>
+            <input type="checkbox" checked={fill} onChange={(e)=>setFill(e.target.checked)} />
+            Stretch each line's end to the next line's start (fills pauses)
+          </label>
+          {preview.length>0&&(
+            <p className="mono" style={{fontSize:12,color:timed?"var(--ok)":"var(--warn)"}}>
+              {preview.length} lines · {timed} timed · {heads} headings
+              {stretched?" · "+stretched+" stretched over pauses":""}
+            </p>
+          )}
+        </div>
+        <div style={{padding:"12px 16px",borderTop:"1px solid var(--line)",display:"flex",gap:8}}>
+          <button className="btn btn-primary" onClick={()=>onApply(text,true,fill)} disabled={!preview.length}>Replace script</button>
+          <button className="btn" onClick={()=>onApply(text,false,fill)} disabled={!preview.length}>Append</button>
+          <div style={{flex:1}} />
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TagImportModal({ raw,tags,onApply,onClose }){
+  const parsed=useMemo(()=>parseTagList(raw,tags),[raw,tags]);
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal enter" onClick={(e)=>e.stopPropagation()}>
+        <div className="pane-head"><h2>Import tag list</h2><div style={{flex:1}} />
+          <button className="btn btn-xs btn-ghost" onClick={onClose}>✕</button></div>
+        <div style={{padding:16,overflowY:"auto"}}>
+          <p style={{marginTop:0,color:"var(--muted)",fontSize:13,lineHeight:1.7}}>
+            Format per line: <span className="mono">tag | start | end | status | due | note</span>
+          </p>
+          {parsed.rows.length===0?(
+            <p style={{color:"var(--bad)"}}>No valid rows found. Check the separators are pipes.</p>
+          ):(
+            <div style={{maxHeight:260,overflowY:"auto",border:"1px solid var(--line)",borderRadius:7}}>
+              {parsed.rows.map((r,i)=>(
+                <div key={i} style={{display:"flex",gap:9,padding:"6px 10px",fontSize:12,
+                  borderBottom:i<parsed.rows.length-1?"1px solid var(--line)":"none"}}>
+                  <span className="mono" style={{color:"var(--dim)",width:96}}>{clock(r.start)}–{clock(r.end)}</span>
+                  <span style={{color:r.tagId?"var(--text)":"var(--warn)"}}>{r.tagLabel}</span>
+                  <span style={{color:"var(--dim)"}}>{r.status}</span>
+                  <span style={{flex:1,color:"var(--muted)",overflow:"hidden",whiteSpace:"nowrap",
+                                textOverflow:"ellipsis"}}>{r.note}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {parsed.unknown.length>0&&(
+            <p style={{fontSize:12,color:"var(--warn)",marginTop:10}}>
+              New tag types will be created: {parsed.unknown.join(", ")}
+            </p>
+          )}
+        </div>
+        <div style={{padding:"12px 16px",borderTop:"1px solid var(--line)",display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button className="btn btn-primary" onClick={()=>onApply(raw,"merge")} disabled={!parsed.rows.length}>
+            Add alongside existing
+          </button>
+          <button className="btn" onClick={()=>onApply(raw,"replace")} disabled={!parsed.rows.length}>
+            Replace anything overlapping
+          </button>
+          <div style={{flex:1}} />
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =============== tag manager =============== */
+function TagModal({ tags,counts,onChange,onClose }){
+  const [list,setList]=useState(tags.map((t)=>Object.assign({},t)));
+  const [removed,setRemoved]=useState([]);
+  const set=(i,p)=>setList((l)=>l.map((t,j)=>j===i?Object.assign({},t,p):t));
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal enter" onClick={(e)=>e.stopPropagation()}>
+        <div className="pane-head"><h2>Tags</h2><div style={{flex:1}} />
+          <button className="btn btn-xs btn-ghost" onClick={onClose}>✕</button></div>
+        <div style={{padding:16,overflowY:"auto"}}>
+          <p style={{marginTop:0,color:"var(--muted)",fontSize:13}}>
+            The first nine get number-key shortcuts, in this order.
+          </p>
+          {list.map((t,i)=>(
+            <div key={t.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <span className="mono" style={{color:"var(--dim)",fontSize:11,width:14}}>{i<9?i+1:""}</span>
+              <input type="color" value={t.color} onChange={(e)=>set(i,{color:e.target.value})}
+                style={{width:32,height:30,padding:0,border:"1px solid var(--line)",
+                        borderRadius:6,background:"transparent",cursor:"pointer"}} />
+              <input className="field" value={t.label} onChange={(e)=>set(i,{label:e.target.value})}
+                style={{flex:1,padding:"5px 9px",fontSize:13}} />
+              <span className="mono" style={{color:"var(--dim)",fontSize:11,width:24,textAlign:"right"}}>{counts[t.id]||0}</span>
+              <button className="btn btn-xs btn-ghost" disabled={i===0}
+                onClick={()=>setList((l)=>{const n=l.slice();const x=n[i-1];n[i-1]=n[i];n[i]=x;return n;})}>↑</button>
+              <button className="btn btn-xs btn-ghost" disabled={i===list.length-1}
+                onClick={()=>setList((l)=>{const n=l.slice();const x=n[i+1];n[i+1]=n[i];n[i]=x;return n;})}>↓</button>
+              <button className="btn btn-xs btn-ghost" style={{color:"var(--dim)"}}
+                onClick={()=>{ if(counts[t.id]>0&&!window.confirm("“"+t.label+"” is on "+counts[t.id]+" shots. Delete those too?")) return;
+                  setRemoved((r)=>r.concat(t.id)); setList((l)=>l.filter((_,j)=>j!==i)); }}>✕</button>
+            </div>
+          ))}
+          <button className="btn btn-sm" style={{marginTop:8}}
+            onClick={()=>setList((l)=>l.concat({id:uid(),label:"New tag",color:PALETTE[l.length%PALETTE.length]}))}>
+            Add tag
+          </button>
+        </div>
+        <div style={{padding:"12px 16px",borderTop:"1px solid var(--line)",display:"flex",gap:8}}>
+          <button className="btn btn-primary" onClick={()=>{onChange(list,removed);onClose();}}>Save tags</button>
+          <div style={{flex:1}} />
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =============== projects =============== */
+function ProjectModal({ projects,current,onOpen,onNew,onDuplicate,onDelete,onExport,onImportClick,onClose,onPatch }){
+  const list=Object.values(projects).sort((a,b)=>(b.updated||0)-(a.updated||0));
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal enter" onClick={(e)=>e.stopPropagation()}>
+        <div className="pane-head"><h2>Projects</h2><div style={{flex:1}} />
+          <button className="btn btn-xs btn-ghost" onClick={onClose}>✕</button></div>
+        <div style={{padding:16,overflowY:"auto"}}>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
+            <span style={{fontSize:12,color:"var(--muted)"}}>Current project runs</span>
+            <input className="field mono" type="date" value={current.startDate||""}
+              onChange={(e)=>onPatch({startDate:e.target.value})} style={{width:140,padding:"3px 7px",fontSize:12}} />
+            <span style={{color:"var(--dim)"}}>→</span>
+            <input className="field mono" type="date" value={current.dueDate||""}
+              onChange={(e)=>onPatch({dueDate:e.target.value})} style={{width:140,padding:"3px 7px",fontSize:12}} />
+          </div>
+          {list.map((p)=>{
+            const done=(p.markers||[]).filter((m)=>(m.status||"todo")==="done").length;
+            return (
+              <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 11px",marginBottom:6,
+                background:p.id===current.id?"var(--panel2)":"transparent",
+                border:"1px solid "+(p.id===current.id?"var(--line2)":"var(--line)"),borderRadius:7}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:500,fontSize:13}}>{p.name}</div>
+                  <div className="mono" style={{color:"var(--dim)",fontSize:11}}>
+                    {(p.cues||[]).length} lines · {done}/{(p.markers||[]).length} done
+                    {p.dueDate?" · due "+p.dueDate:""}
+                  </div>
+                </div>
+                {p.id!==current.id&&<button className="btn btn-xs" onClick={()=>onOpen(p)}>Open</button>}
+                <button className="btn btn-xs btn-ghost" style={{color:"var(--dim)"}}
+                  onClick={()=>{ if(window.confirm("Delete “"+p.name+"”? This can't be undone.")) onDelete(p.id); }}>✕</button>
+              </div>
+            );
+          })}
+          <p style={{color:"var(--muted)",fontSize:12,lineHeight:1.7,marginTop:14}}>
+            Projects live in this browser only. Export the .json to move one to another device.
+          </p>
+        </div>
+        <div style={{padding:"12px 16px",borderTop:"1px solid var(--line)",display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button className="btn btn-primary" onClick={onNew}>New project</button>
+          <button className="btn" onClick={onDuplicate}>Duplicate</button>
+          <div style={{flex:1}} />
+          <button className="btn" onClick={onExport}>Export .json</button>
+          <button className="btn" onClick={onImportClick}>Import .json</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =============== help =============== */
+function HelpModal({ onClose }){
+  const Row=({k,v})=>(
+    <div style={{display:"flex",gap:12,padding:"4px 0",fontSize:13}}>
+      <span className="mono" style={{color:"var(--accent)",minWidth:150}}>{k}</span>
+      <span style={{color:"var(--muted)",flex:1}}>{v}</span>
+    </div>
+  );
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal enter" onClick={(e)=>e.stopPropagation()}>
+        <div className="pane-head"><h2>Formats & shortcuts</h2><div style={{flex:1}} />
+          <button className="btn btn-xs btn-ghost" onClick={onClose}>✕</button></div>
+        <div style={{padding:16,overflowY:"auto"}}>
+          <h3 style={{fontSize:13,marginTop:0}}>Script file symbols</h3>
+          <Row k="# Text" v="Heading" />
+          <Row k="## Text" v="Sub-heading" />
+          <Row k='"Text"' v="Heading (same as #)" />
+          <Row k="> Text" v="Note — shown in italics, not a script line" />
+          <Row k="// Text" v="Ignored completely" />
+          <Row k="[0:00 - 0:04] text" v="Line with an inline time range" />
+          <Row k="00:00:00 ⏎ 00:00:04 ⏎ text" v="Start, end, text on three lines" />
+          <Row k="00:00 --> 00:04" v="SRT / VTT arrow form" />
+
+          <h3 style={{fontSize:13,marginTop:18}}>Tag list file</h3>
+          <div className="mono" style={{fontSize:12,background:"var(--bg)",border:"1px solid var(--line)",
+            borderRadius:7,padding:10,lineHeight:1.8,marginTop:6,overflowX:"auto"}}>
+            # tag | start | end | status | due | note<br/>
+            Map animation | 1:00 | 3:24 | todo | 2026-09-20 | Qing borders, Arabic labels<br/>
+            AI scene | 4:10 | 4:22 | doing | | harbour at dawn, wide
+          </div>
+          <p style={{fontSize:12,color:"var(--muted)",lineHeight:1.7}}>
+            Status is todo, doing or done. Due is YYYY-MM-DD. Any field after the fifth pipe is treated as note text.
+            Unknown tag names are created automatically with a new colour.
+          </p>
+
+          <h3 style={{fontSize:13,marginTop:18}}>Keyboard</h3>
+          <Row k="space" v="Play / pause" />
+          <Row k="← →" v="Scrub 2s · shift for 10s" />
+          <Row k="↑ ↓" v="Previous / next line" />
+          <Row k="1 – 9" v="Apply that tag" />
+          <Row k="delete" v="Delete selected lines" />
+          <Row k="⌘Z / ⌘⇧Z" v="Undo / redo" />
+          <Row k="⌘A" v="Select every line" />
+          <Row k="+ −" v="Zoom the waveform" />
+          <Row k="⌘ + scroll" v="Zoom the waveform at the cursor" />
+          <Row k="F" v="Follow audio on / off" />
+          <Row k="esc" v="Clear selection and region" />
+        </div>
+        <div style={{padding:"12px 16px",borderTop:"1px solid var(--line)"}}>
+          <button className="btn btn-primary" onClick={onClose}>Got it</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =============== cloud / login =============== */
+function CloudModal({ cfg,sb,user,autoUpload,onAuto,onSaveCfg,onSignedIn,onSignOut,onSync,onClose }){
+  const [url,setUrl]=useState((cfg&&cfg.url)||"");
+  const [key,setKey]=useState((cfg&&cfg.key)||"");
+  const [email,setEmail]=useState("");
+  const [pw,setPw]=useState("");
+  const [mode,setMode]=useState("in");
+  const [busy,setBusy]=useState(false);
+  const [msg,setMsg]=useState("");
+  const configured=!!(cfg&&cfg.url&&cfg.key);
+
+  const go=async()=>{
+    if(!sb){ setMsg("Save your project URL and key first."); return; }
+    if(!email||!pw){ setMsg("Email and password are both required."); return; }
+    setBusy(true); setMsg("");
+    const r=mode==="in"
+      ? await sb.auth.signInWithPassword({ email:email.trim(), password:pw })
+      : await sb.auth.signUp({ email:email.trim(), password:pw });
+    setBusy(false);
+    if(r.error){ setMsg(r.error.message); return; }
+    if(mode==="up"&&r.data&&!r.data.session){
+      setMsg("Account created. Open the confirmation email, then come back and sign in.");
+      setMode("in"); return;
+    }
+    onSignedIn();
+  };
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal enter" onClick={(e)=>e.stopPropagation()} style={{maxWidth:470}}>
+        <div className="pane-head">
+          <img src={LOGO} alt="" style={{height:18,opacity:.9}} />
+          <h2>{user?"Cloud":"Sign in"}</h2>
+          <div style={{flex:1}} />
+          <button className="btn btn-xs btn-ghost" onClick={onClose}>✕</button>
+        </div>
+
+        <div style={{padding:16,overflowY:"auto"}}>
+          {user?(
+            <div>
+              <p style={{marginTop:0,fontSize:14}}>
+                Signed in as <b>{user.email}</b>
+              </p>
+              <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"var(--muted)",margin:"14px 0"}}>
+                <input type="checkbox" checked={autoUpload} onChange={(e)=>onAuto(e.target.checked)} />
+                Upload audio automatically when I load a file
+              </label>
+              <p style={{fontSize:12,color:"var(--dim)",lineHeight:1.75}}>
+                Projects save to the cloud a couple of seconds after every change. Audio for any project
+                you haven't touched in 14 days is deleted automatically the next time you sync — the
+                project itself is never deleted.
+              </p>
+              <div style={{display:"flex",gap:8,marginTop:16,flexWrap:"wrap"}}>
+                <button className="btn btn-primary" onClick={onSync}>Sync now</button>
+                <div style={{flex:1}} />
+                <button className="btn btn-ghost" onClick={onSignOut} style={{color:"var(--bad)"}}>Sign out</button>
+              </div>
+            </div>
+          ):(
+            <div>
+              {!configured&&(
+                <div style={{marginBottom:18,paddingBottom:16,borderBottom:"1px solid var(--line)"}}>
+                  <p style={{marginTop:0,fontSize:13,color:"var(--muted)",lineHeight:1.7}}>
+                    One-time setup. Paste these from your Supabase dashboard —
+                    Project Settings → API. See SETUP-GUIDE.txt.
+                  </p>
+                  <input className="field" value={url} onChange={(e)=>setUrl(e.target.value)}
+                    placeholder="Project URL — https://xxxx.supabase.co"
+                    style={{marginBottom:8,fontSize:13}} />
+                  <input className="field" value={key} onChange={(e)=>setKey(e.target.value)}
+                    placeholder="Publishable / anon key" style={{fontSize:13}} />
+                  <button className="btn btn-primary" style={{marginTop:10}}
+                    disabled={!url.trim()||!key.trim()}
+                    onClick={()=>onSaveCfg({url:url.trim(),key:key.trim()})}>Save connection</button>
+                </div>
+              )}
+
+              <div style={{display:"flex",gap:4,marginBottom:12}}>
+                <button className={"tab"+(mode==="in"?" on":"")} onClick={()=>setMode("in")}>Sign in</button>
+                <button className={"tab"+(mode==="up"?" on":"")} onClick={()=>setMode("up")}>Create account</button>
+              </div>
+              <input className="field" type="email" autoComplete="username" value={email}
+                onChange={(e)=>setEmail(e.target.value)} placeholder="Email"
+                style={{marginBottom:8}} onKeyDown={(e)=>{ if(e.key==="Enter") go(); }} />
+              <input className="field" type="password" autoComplete="current-password" value={pw}
+                onChange={(e)=>setPw(e.target.value)} placeholder="Password (at least 6 characters)"
+                onKeyDown={(e)=>{ if(e.key==="Enter") go(); }} />
+              {msg&&<p style={{fontSize:12,color:"var(--warn)",lineHeight:1.6}}>{msg}</p>}
+              <button className="btn btn-primary" style={{marginTop:12,width:"100%"}}
+                disabled={busy||!configured} onClick={go}>
+                {busy?"Working…":mode==="in"?"Sign in":"Create account"}
+              </button>
+              {configured&&(
+                <button className="btn btn-ghost btn-sm" style={{marginTop:10,color:"var(--dim)"}}
+                  onClick={()=>onSaveCfg({url:"",key:""})}>Change Supabase connection</button>
+              )}
+              <p style={{fontSize:12,color:"var(--dim)",lineHeight:1.75,marginTop:14}}>
+                You don't have to sign in. Everything works offline and saves in this browser —
+                signing in adds sync across devices and audio storage.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
