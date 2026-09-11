@@ -236,6 +236,20 @@ function parseTagList(raw, tags) {
   return { rows, unknown };
 }
 
+/* ---------------- lines under a time range ----------------
+   A line counts when at least 0.25s of its spoken part (start → origEnd, not the
+   gap-filled end) falls inside [a,b]. Lines under 0.5s need half their length.   */
+function cuesInRange(cues, a, b, offset) {
+  const lo=Math.min(a,b), hi=Math.max(a,b), off=offset||0;
+  return cues.filter((c)=>{
+    if (c.kind!=="line" || c.start==null) return false;
+    const s=c.start+off;
+    const spoken=c.origEnd!=null ? c.origEnd : c.end!=null ? c.end : c.start;
+    const e=Math.max(s, spoken+off);
+    return Math.min(e,hi)-Math.max(s,lo) >= Math.min(0.25,(e-s)/2);
+  }).map((c)=>c.id);
+}
+
 /* ---------------- storage ---------------- */
 const LS="dimna:projects", LAST="dimna:last";
 const readAll = () => { try { return JSON.parse(localStorage.getItem(LS)||"{}"); } catch(e){ return {}; } };
@@ -501,6 +515,8 @@ function App(){
   },[cues,time,offset]);
 
   const range=useCallback((m)=>{
+    // region tags keep the span that was dragged, even with lines attached
+    if(Number.isFinite(m.start)&&Number.isFinite(m.end)) return { start:m.start, end:m.end };
     if(m.cueIds&&m.cueIds.length){
       let s=Infinity,e=-Infinity;
       m.cueIds.forEach((id)=>{ const c=cues[cueIndex[id]]; if(!c||c.start===null) return;
@@ -587,10 +603,14 @@ function App(){
   /* ---- markers ---- */
   const addMarker=useCallback((tagId)=>{
     const id=uid(); let m;
-    if(region && region.b-region.a>0.05){
-      m={ id,tagId,cueIds:[],start:Math.min(region.a,region.b),end:Math.max(region.a,region.b),
+    if(region && Math.abs(region.b-region.a)>0.05){
+      const a=Math.min(region.a,region.b), b=Math.max(region.a,region.b);
+      const cueIds=cuesInRange(cues,a,b,offset);
+      m={ id,tagId,cueIds,start:a,end:b,
           note:"",comments:[],annotations:[],status:"todo",due:"" };
       setRegion(null);
+      if(cueIds.length>1) setExpanded((g)=>Object.assign({},g,{[cueIds.slice().sort().join("|")]:true}));
+      say("Region tagged · "+(cueIds.length?cueIds.length+" line"+(cueIds.length>1?"s":""):"no lines under it"));
     } else {
       let cueIds=sel.slice();
       if(!cueIds.length&&activeIdx>=0) cueIds=[cues[activeIdx].id];
@@ -603,7 +623,7 @@ function App(){
     }
     patch({ markers:markers.concat(m) });
     setFlash(id); setTimeout(()=>setFlash((f)=>f===id?null:f),550);
-  },[sel,activeIdx,cues,markers,time,region]);
+  },[sel,activeIdx,cues,markers,time,region,offset]);
 
   const updMarker=(id,p)=>patch({ markers:markers.map((m)=>m.id===id?Object.assign({},m,p):m) });
   const delMarker=(id)=>commit({ markers:markers.filter((m)=>m.id!==id) });
