@@ -220,7 +220,52 @@
   .cal-day.dim { opacity:.4; }
   .cal-day.today { border-color:var(--accent); }
 
-  @media (max-width:860px) { .split { flex-direction:column !important; } .grip { display:none; } }
+  /* ---------- phone & touch (item 2) ---------- */
+  @supports (height:100dvh) { #root { height:100dvh; } }   /* 100vh ignores the iOS address bar */
+  .transport { display:flex; align-items:center; gap:8px; padding:9px 14px; flex-wrap:wrap; }
+  .t-main, .t-tags, .t-more { display:contents; }
+  .t-divider { width:1px; height:22px; background:var(--line); margin:0 2px; }
+  .pane-switch { display:flex; gap:4px; padding:6px 8px; background:var(--panel); border-bottom:1px solid var(--line); flex:none; }
+  .pane-switch button { flex:1; background:transparent; border:1px solid var(--line); border-radius:8px; padding:8px 6px;
+                        font-size:13px; color:var(--muted); display:flex; align-items:center; justify-content:center; gap:7px; }
+  .pane-switch button.on { background:var(--panel2); color:var(--text); border-color:var(--line2); font-weight:600; }
+  .pane-switch .mono { font-size:11px; color:var(--dim); }
+  .cal-day.picked { border-color:var(--accent); background:var(--panel2); }
+  .cal-dots { display:flex; flex-wrap:wrap; gap:3px; margin-top:2px; }
+  .cal-list { margin-top:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+  .cal-task { display:flex; align-items:center; gap:8px; width:100%; background:transparent; border:0;
+              border-top:1px solid var(--line); padding:9px 2px; color:var(--text); font-size:13px; }
+  @media (pointer:coarse) {
+    input, textarea, .field { font-size:16px !important; }   /* iOS zooms into any field smaller than 16px */
+    .btn { min-height:40px; } .btn-sm { min-height:36px; } .btn-xs { min-height:30px; padding:4px 9px; }
+    .tab { min-height:36px; } .seg button { padding:6px 10px; } .fchip { padding:5px 10px; }
+    .pop-item { padding:10px 12px; font-size:14px; }
+    .c-act, .line-x { opacity:.8; }
+  }
+  @media (max-width:760px) {
+    .split { flex-direction:column !important; }
+    .hdr.phone { gap:6px; padding:6px 8px; padding-top:calc(6px + env(safe-area-inset-top)); }
+    .phone-row { flex-basis:100%; display:flex; align-items:center; gap:4px; }
+    .pane { padding:10px 10px 40px; }
+    .pane-head { padding:8px 10px; gap:6px; }
+    .gcard { max-width:none; padding:10px; }
+    .overlay { padding:0; align-items:stretch; }
+    .modal { max-width:none !important; max-height:none; height:100%; border-radius:0; border:0; }
+    .shot-grid { grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); }
+    .cue { padding:8px; gap:10px; }
+    .filters { padding:6px 10px; overflow-x:auto; flex-wrap:nowrap; }
+    .fchip { flex:none; }
+    .cal-day { min-height:46px; padding:3px; cursor:pointer; }
+    .transport.phone { display:block; padding:8px 10px calc(8px + env(safe-area-inset-bottom)); }
+    .transport.phone .t-main { display:flex; align-items:center; gap:8px; }
+    .transport.phone .t-divider, .transport.phone .t-spacer { display:none; }
+    .transport.phone .t-tags { display:flex; gap:6px; overflow-x:auto; flex-wrap:nowrap; padding:8px 0 2px; scrollbar-width:none; }
+    .transport.phone .t-tags::-webkit-scrollbar { display:none; }
+    .transport.phone .t-tag { flex:none; }
+    .transport.phone .t-more { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding-top:8px; margin-top:6px;
+                               border-top:1px solid var(--line); }
+    .transport.phone .t-more.hidden-phone { display:none; }
+  }
   @media (prefers-reduced-motion:reduce) { *,.enter,.pop,.fade { animation:none !important; transition:none !important; } }
 </style>
 </head>
@@ -575,6 +620,17 @@ function makeClient(cfg){
   try{ return window.supabase.createClient(cfg.url,cfg.key); }catch(e){ return null; }
 }
 
+function useMedia(q){
+  const [m,setM]=useState(()=>!!(window.matchMedia&&window.matchMedia(q).matches));
+  useEffect(()=>{
+    if(!window.matchMedia) return;
+    const mq=window.matchMedia(q), f=()=>setM(mq.matches); f();
+    if(mq.addEventListener) mq.addEventListener("change",f); else mq.addListener(f);
+    return ()=>{ if(mq.removeEventListener) mq.removeEventListener("change",f); else mq.removeListener(f); };
+  },[q]);
+  return m;
+}
+
 /* ================================================================ */
 function App(){
   const audioRef=useRef(null), fileRef=useRef(null), jsonRef=useRef(null);
@@ -587,6 +643,11 @@ function App(){
   const [projects,setProjects]=useState({});
   const [ready,setReady]=useState(false);
   const [view,setView]=useState("script");
+  // phone (item 2): one pane at a time, tap-to-select lines, transport extras behind "More"
+  const isPhone=useMedia("(max-width: 760px)");
+  const [phonePane,setPhonePane]=useState("script");
+  const [selectMode,setSelectMode]=useState(false);
+  const [moreOpen,setMoreOpen]=useState(false);
 
   const [audioUrl,setAudioUrl]=useState(null);
   const [playing,setPlaying]=useState(false);
@@ -851,7 +912,7 @@ function App(){
       const a=Math.min(anchor,i), b=Math.max(anchor,i);
       setSel(cues.slice(a,b+1).map((x)=>x.id)); return;
     }
-    if(e.metaKey||e.ctrlKey){
+    if(e.metaKey||e.ctrlKey||selectMode){   // select mode: phones have no shift / cmd
       setSel((s)=>s.indexOf(c.id)>=0?s.filter((x)=>x!==c.id):s.concat(c.id)); setAnchor(i); return;
     }
     setSel([c.id]); setAnchor(i);
@@ -906,6 +967,7 @@ function App(){
   // a tag chip in the script scrolls the shot list to its block
   const jumpToGroup=(key)=>{
     setExpanded((g)=>Object.assign({},g,{[key]:true}));
+    if(isPhone) setPhonePane("shots");
     setTimeout(()=>{
       const el=document.querySelector('[data-gkey="'+CSS.escape(key)+'"]'); if(!el) return;
       el.scrollIntoView({ block:"nearest", behavior:"smooth" });
@@ -1091,20 +1153,22 @@ function App(){
     const win=duration/zoom, vs=clamp(viewStart,0,Math.max(0,duration-win));
     return clamp(vs+((clientX-r.left)/r.width)*win,0,duration);
   };
+  // pointer events, so a finger drags a region and a tap seeks exactly like the mouse
   const waveDown=(e)=>{
-    if(!duration) return;
-    dragRef.current={ t0:waveT(e.clientX), moved:false };
+    if(!duration||(e.pointerType==="mouse"&&e.button!==0)) return;
+    const slop=e.pointerType==="touch"?8:3;   // px before a press counts as a drag
+    dragRef.current={ t0:waveT(e.clientX), x0:e.clientX, moved:false };
     const move=(ev)=>{
       const d=dragRef.current; if(!d) return;
-      const t=waveT(ev.clientX);
-      if(Math.abs(t-d.t0)>0.08){ d.moved=true; setRegion({a:d.t0,b:t}); }
+      if(!d.moved&&Math.abs(ev.clientX-d.x0)<slop) return;
+      d.moved=true; setRegion({ a:d.t0, b:waveT(ev.clientX) });
     };
-    const up=(ev)=>{
+    const up=()=>{
       const d=dragRef.current; dragRef.current=null;
-      window.removeEventListener("mousemove",move); window.removeEventListener("mouseup",up);
+      window.removeEventListener("pointermove",move); window.removeEventListener("pointerup",up); window.removeEventListener("pointercancel",up);
       if(d&&!d.moved){ setRegion(null); seek(d.t0); }
     };
-    window.addEventListener("mousemove",move); window.addEventListener("mouseup",up);
+    window.addEventListener("pointermove",move); window.addEventListener("pointerup",up); window.addEventListener("pointercancel",up);
   };
   const waveWheel=(e)=>{
     if(!duration) return;
@@ -1130,15 +1194,15 @@ function App(){
       // splitPct is the script pane's share; in RTL that pane sits on the right
       setUi({ splitPct: clamp(((rtl?r.right-ev.clientX:ev.clientX-r.left)/r.width)*100, 22, 82) });
     };
-    const up=()=>{ window.removeEventListener("mousemove",move); window.removeEventListener("mouseup",up); };
-    window.addEventListener("mousemove",move); window.addEventListener("mouseup",up);
+    const up=()=>{ window.removeEventListener("pointermove",move); window.removeEventListener("pointerup",up); window.removeEventListener("pointercancel",up); };
+    window.addEventListener("pointermove",move); window.addEventListener("pointerup",up); window.addEventListener("pointercancel",up);
   };
   const startWaveResize=(e)=>{
     e.preventDefault();
     const y0=e.clientY, h0=ui.waveH;
     const move=(ev)=>setUi({ waveH: clamp(h0+(y0-ev.clientY),46,340) });
-    const up=()=>{ window.removeEventListener("mousemove",move); window.removeEventListener("mouseup",up); };
-    window.addEventListener("mousemove",move); window.addEventListener("mouseup",up);
+    const up=()=>{ window.removeEventListener("pointermove",move); window.removeEventListener("pointerup",up); window.removeEventListener("pointercancel",up); };
+    window.addEventListener("pointermove",move); window.addEventListener("pointerup",up); window.addEventListener("pointercancel",up);
   };
 
   /* ---- import ---- */
@@ -1291,6 +1355,37 @@ function App(){
   return (
     <div dir={uiDir} style={{height:"100%",display:"flex",flexDirection:"column"}}>
 
+      {isPhone?(
+        <header className="hdr phone">
+          <img src={LOGO} alt="دمنة" style={{height:22,opacity:.92}} />
+          <input className="proj-name" value={proj.name} onChange={(e)=>patch({name:e.target.value})} dir="auto"
+            title="Project name" style={{flex:1,width:"auto"}} />
+          <button className="btn btn-sm btn-ghost" onClick={undo} disabled={!history.current.length} aria-label="Undo" title="Undo">↶</button>
+          <button className="btn btn-sm btn-ghost" onClick={redo} disabled={!future.current.length} aria-label="Redo" title="Redo">↷</button>
+          <MenuButton className="btn btn-sm" title="Menu" label="☰" items={[
+            { head:"Project" },
+            { label:"Projects", onClick:()=>setProjOpen(true) },
+            { label:"Tags", onClick:()=>setTagsOpen(true) },
+            { label:syncing?"Syncing…":user?"Cloud ✓":"Sign in & sync", onClick:()=>setCloudOpen(true) },
+            { head:"Import" }, ...importItems.filter((it)=>!it.sep),
+            { head:"Export" }, ...exportItems.filter((it)=>!it.sep),
+            { sep:true },
+            { label:"Formats & shortcuts", onClick:()=>setHelpOpen(true) },
+          ]} />
+          <div className="phone-row">
+            {[["script","Script"],["board","Board"],["calendar","Calendar"]].map(([k,l])=>(
+              <button key={k} className={"tab"+(view===k?" on":"")} onClick={()=>setView(k)}>{l}</button>
+            ))}
+            <div style={{flex:1}} />
+            {markers.length>0&&(
+              <div className="progress" title={statusCounts.done+" of "+markers.length+" shots done"}>
+                <div className="progress-bar" style={{width:54}}><div style={{width:donePct+"%"}} /></div>
+                <span className="mono">{statusCounts.done}/{markers.length}</span>
+              </div>
+            )}
+          </div>
+        </header>
+      ):(
       <header className="hdr">
         <img src={LOGO} alt="دمنة" style={{height:24,opacity:.92}} />
         <input className="proj-name" value={proj.name} onChange={(e)=>patch({name:e.target.value})} dir="auto" title="Project name" />
@@ -1322,16 +1417,26 @@ function App(){
           {syncing?"Syncing…":user?"Cloud ✓":"Sign in"}
         </button>
         <button className="btn btn-sm btn-ghost" onClick={()=>setHelpOpen(true)} title="Formats & shortcuts">?</button>
-        <input ref={txtRef} type="file" accept=".txt,.srt,.vtt,.md,text/plain" onChange={openTxt} style={{display:"none"}} />
-        <input ref={tagTxtRef} type="file" accept=".txt,text/plain" onChange={openTagTxt} style={{display:"none"}} />
-        <input ref={jsonRef} type="file" accept=".json,application/json" onChange={importProject} style={{display:"none"}} />
       </header>
+      )}
+      <input ref={txtRef} type="file" accept=".txt,.srt,.vtt,.md,text/plain" onChange={openTxt} style={{display:"none"}} />
+      <input ref={tagTxtRef} type="file" accept=".txt,text/plain" onChange={openTagTxt} style={{display:"none"}} />
+      <input ref={jsonRef} type="file" accept=".json,application/json" onChange={importProject} style={{display:"none"}} />
+
+      {view==="script"&&isPhone&&(
+        <div className="pane-switch">
+          <button className={phonePane==="script"?"on":""} onClick={()=>setPhonePane("script")}>
+            Script<span className="mono">{cues.filter((c)=>c.kind==="line").length}</span></button>
+          <button className={phonePane==="shots"?"on":""} onClick={()=>setPhonePane("shots")}>
+            Shot list<span className="mono">{markers.length}</span></button>
+        </div>
+      )}
 
       {/* ---------- body ---------- */}
       {view==="script" && (
         <div ref={bodyRef} className="split" style={{flex:1,display:"flex",minHeight:0}}>
-          <section style={{flexBasis:ui.splitPct+"%",flexGrow:0,flexShrink:1,minWidth:260,
-                           display:"flex",flexDirection:"column",minHeight:0}}>
+          <section style={{flexBasis:isPhone?"100%":ui.splitPct+"%",flexGrow:isPhone?1:0,flexShrink:1,minWidth:isPhone?0:260,
+                           display:isPhone&&phonePane!=="script"?"none":"flex",flexDirection:"column",minHeight:0}}>
             <div className="pane-head">
               <h2>Script</h2>
               <span style={{color:"var(--dim)",fontSize:12}}>
@@ -1343,6 +1448,12 @@ function App(){
                   <button className="btn btn-xs btn-ghost" onClick={()=>setSel([])} style={{color:"var(--muted)"}}>clear</button>
                   <button className="btn btn-xs btn-ghost" onClick={deleteSelected} style={{color:"var(--bad)"}}>delete</button>
                 </>
+              )}
+              {isPhone&&(
+                <button className={"btn btn-xs "+(selectMode?"btn-primary":"btn-ghost")}
+                  onClick={()=>setSelectMode((v)=>!v)} title="Tap lines to add or remove them from the selection">
+                  {selectMode?"Done":"Select"}
+                </button>
               )}
               <div style={{flex:1}} />
               <button className="btn btn-xs btn-ghost" onClick={()=>setUi({scriptSize:clamp(ui.scriptSize-1,11,30)})}>A−</button>
@@ -1407,9 +1518,10 @@ function App(){
             </div>
           </section>
 
-          <div className="grip" onMouseDown={startSplit} />
+          {!isPhone&&<div className="grip" onPointerDown={startSplit} />}
 
-          <section style={{flex:1,minWidth:260,display:"flex",flexDirection:"column",minHeight:0}}>
+          <section style={{flex:1,minWidth:isPhone?0:260,display:isPhone&&phonePane!=="shots"?"none":"flex",
+                           flexDirection:"column",minHeight:0}}>
             <div className="pane-head">
               <h2>Shot list</h2>
               <span style={{color:"var(--dim)",fontSize:12}}>{markers.length}</span>
@@ -1499,24 +1611,24 @@ function App(){
       )}
 
       {view==="board" && (
-        <Board markers={sorted} tagOf={tagOf} range={range} fps={fps} onUpdate={updMarker}
+        <Board markers={sorted} tagOf={tagOf} range={range} fps={fps} onUpdate={updMarker} isPhone={isPhone}
           onSeek={(t)=>{ setView("script"); setTimeout(()=>seek(t),50); }} cues={cues} cueIndex={cueIndex} />
       )}
 
       {view==="calendar" && (
-        <Calendar projects={projects} current={proj} onOpenProject={(p)=>{setProjRaw(p);setView("script");}}
+        <Calendar projects={projects} current={proj} isPhone={isPhone} onOpenProject={(p)=>{setProjRaw(p);setView("script");}}
           onPatch={patch} />
       )}
 
       {/* ---------- transport ---------- */}
       <footer style={{flex:"none",background:"var(--panel)",borderTop:"1px solid var(--line)"}}>
-        <div className="grip-h" onMouseDown={startWaveResize} title="Drag to resize the waveform" />
-        <div ref={waveWrap} dir="ltr" onMouseDown={waveDown} onWheel={waveWheel}
+        {!isPhone&&<div className="grip-h" onPointerDown={startWaveResize} title="Drag to resize the waveform" />}
+        <div ref={waveWrap} dir="ltr" onPointerDown={waveDown} onWheel={waveWheel}
           onMouseMove={(e)=>{ const r=e.currentTarget.getBoundingClientRect(); setHoverX({x:e.clientX-r.left,t:waveT(e.clientX)}); }}
           onMouseLeave={()=>setHoverX(null)}
-          style={{position:"relative",height:ui.waveH,background:"#100E0B",
+          style={{position:"relative",height:isPhone?Math.min(ui.waveH,64):ui.waveH,background:"#100E0B",
                   borderBottom:"1px solid var(--line)",cursor:duration?"text":"default",overflow:"hidden",
-                  userSelect:"none"}}>
+                  userSelect:"none",touchAction:"none"}}>
           <canvas ref={canvasRef} style={{display:"block",position:"absolute",inset:0}} />
           {duration>0&&(()=>{
             const win=duration/zoom, vs=clamp(viewStart,0,Math.max(0,duration-win));
@@ -1539,14 +1651,21 @@ function App(){
           )}
         </div>
 
-        <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",flexWrap:"wrap"}}>
-          <button className="btn btn-primary" onClick={toggle} disabled={!audioUrl} style={{minWidth:72}}>
-            {playing?"Pause":"Play"}
-          </button>
-          <span className="mono" style={{fontSize:18}}>{tc(time,fps)}</span>
-          <span className="mono" style={{color:"var(--dim)",fontSize:12}}>{clock(duration)}</span>
-
-          <div style={{width:1,height:22,background:"var(--line)",margin:"0 2px"}} />
+        <div className={"transport"+(isPhone?" phone":"")}>
+          <div className="t-main">
+            <button className="btn btn-primary" onClick={toggle} disabled={!audioUrl} style={{minWidth:72}}>
+              {playing?"Pause":"Play"}
+            </button>
+            <span className="mono" style={{fontSize:isPhone?16:18}}>{tc(time,fps)}</span>
+            <span className="mono" style={{color:"var(--dim)",fontSize:12}}>{clock(duration)}</span>
+            {isPhone&&<div style={{flex:1}} />}
+            {isPhone&&(
+              <button className={"btn btn-sm"+(moreOpen?" btn-primary":"")} onClick={()=>setMoreOpen((v)=>!v)} aria-expanded={moreOpen}>
+                {moreOpen?"Less":"More"}
+              </button>
+            )}
+            <div className="t-divider" />
+          </div>
 
           {hasRegion&&(
             <span className="chip enter" style={{background:"var(--raise)",color:"var(--text)",fontSize:12,padding:"4px 10px"}}>
@@ -1555,8 +1674,9 @@ function App(){
             </span>
           )}
 
+          <div className="t-tags">
           {tags.map((t,i)=>(
-            <button key={t.id} className="btn" onClick={()=>addMarker(t.id)}
+            <button key={t.id} className="btn t-tag" onClick={()=>addMarker(t.id)}
               title={hasRegion?"Tag the selected waveform region":selCount?"Tag "+selCount+" selected lines":"Tag the line that's playing"}
               style={{borderColor:t.color+"77",color:t.color,background:"transparent",
                       display:"flex",alignItems:"center",gap:7,fontWeight:500}}>
@@ -1565,8 +1685,10 @@ function App(){
                 border:"1px solid var(--line)",borderRadius:3,padding:"0 4px"}}>{i+1}</span>}
             </button>
           ))}
+          </div>
 
-          <div style={{flex:1}} />
+          <div className={"t-more"+(isPhone&&!moreOpen?" hidden-phone":"")}>
+          <div className="t-spacer" style={{flex:1}} />
 
           <span style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"var(--muted)"}}>
             Zoom
@@ -1601,6 +1723,7 @@ function App(){
             <button className="btn btn-sm" style={{borderColor:"var(--ok)",color:"var(--ok)"}}
               onClick={()=>audioFileRef.current&&uploadAudio(audioFileRef.current,proj)}>Upload audio</button>
           )}
+          </div>
           <input ref={fileRef} type="file" accept="audio/*,video/*" onChange={openAudio} style={{display:"none"}} />
         </div>
 
@@ -1963,8 +2086,10 @@ function AnnotatableLines({ lines, anns, editable, size, onAdd, onUpdate, onDele
   useEffect(()=>{ if(!editable){ setTool(null); setPicked(null); } },[editable]);
   useEffect(()=>{ if(picked&&!byId[picked.id]) setPicked(null); },[byId,picked]);
 
+  // read the text selection. With a mouse the toolbar goes where the button came up; for a touch
+  // selection (handles, no mouseup) it goes under the selected words
   const grab=(e)=>{
-    if(!editable) return;
+    if(!editable||!ref.current) return;
     const selection=window.getSelection();
     if(!selection||selection.isCollapsed){ setTool(null); return; }
     let node=selection.anchorNode;
@@ -1975,11 +2100,21 @@ function AnnotatableLines({ lines, anns, editable, size, onAdd, onUpdate, onDele
     const s=offsetIn(holder,r.startContainer,r.startOffset);
     const en=offsetIn(holder,r.endContainer,r.endOffset);
     if(Math.abs(en-s)<1){ setTool(null); return; }
-    const box=ref.current.getBoundingClientRect();
+    const box=ref.current.getBoundingClientRect(), rr=r.getBoundingClientRect();
+    const x=e&&e.clientX!=null?e.clientX-box.left:rr.left+rr.width/2-box.left;
+    const y=e&&e.clientY!=null?e.clientY-box.top:rr.bottom-box.top;
+    const cueId=holder.dataset.cueid, s0=Math.min(s,en), e0=Math.max(s,en);
     setPicked(null);
-    setTool({ cueId:holder.dataset.cueid, s:Math.min(s,en), e:Math.max(s,en),
-              x:e.clientX-box.left, y:e.clientY-box.top });
+    setTool((prev)=>prev&&prev.cueId===cueId&&prev.s===s0&&prev.e===e0?prev:{ cueId, s:s0, e:e0, x, y });
   };
+  const grabRef=useRef(null); grabRef.current=grab;
+  useEffect(()=>{
+    if(!editable||!(window.matchMedia&&window.matchMedia("(pointer:coarse)").matches)) return;
+    let t=0;
+    const onSel=()=>{ clearTimeout(t); t=setTimeout(()=>grabRef.current&&grabRef.current(null),350); };
+    document.addEventListener("selectionchange",onSel);
+    return ()=>{ clearTimeout(t); document.removeEventListener("selectionchange",onSel); };
+  },[editable]);
   const apply=(style,color)=>{
     if(!tool) return;
     onAdd({ cueId:tool.cueId, s:tool.s, e:tool.e, style, color, note:"" });
@@ -2216,13 +2351,25 @@ function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onEditC
 }
 
 /* =============== board =============== */
-function Board({ markers,tagOf,range,fps,onUpdate,onSeek,cues,cueIndex }){
+function Board({ markers,tagOf,range,fps,onUpdate,onSeek,cues,cueIndex,isPhone }){
+  const [col,setCol]=useState("todo");   // phone: one status column at a time
   return (
-    <div style={{flex:1,display:"flex",gap:12,padding:14,minHeight:0,overflowX:"auto"}}>
-      {STATUS.map((s)=>{
+    <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
+      {isPhone&&(
+        <div className="pane-switch">
+          {STATUS.map((s)=>(
+            <button key={s.id} className={col===s.id?"on":""} onClick={()=>setCol(s.id)}>
+              <span className="dot" style={{background:s.color,borderRadius:"50%"}} />{s.label}
+              <span className="mono">{markers.filter((m)=>(m.status||"todo")===s.id).length}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    <div style={{flex:1,display:"flex",gap:12,padding:isPhone?8:14,minHeight:0,overflowX:"auto"}}>
+      {STATUS.filter((s)=>!isPhone||s.id===col).map((s)=>{
         const list=markers.filter((m)=>(m.status||"todo")===s.id);
         return (
-          <div key={s.id} className="col" style={{flex:"1 1 0",minWidth:250}}>
+          <div key={s.id} className="col" style={{flex:"1 1 0",minWidth:isPhone?0:250}}>
             <div className="pane-head">
               <span className="dot" style={{background:s.color,width:9,height:9}} />
               <h2>{s.label}</h2>
@@ -2264,11 +2411,13 @@ function Board({ markers,tagOf,range,fps,onUpdate,onSeek,cues,cueIndex }){
         );
       })}
     </div>
+    </div>
   );
 }
 
 /* =============== calendar =============== */
-function Calendar({ projects,current,onOpenProject,onPatch }){
+function Calendar({ projects,current,onOpenProject,onPatch,isPhone }){
+  const [pickDay,setPickDay]=useState(null);   // phone: cells show dots, the tapped day lists its tasks
   const [cursor,setCursor]=useState(()=>{ const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),1); });
   const all=Object.values(projects);
   const list=all.length?all:[current];
@@ -2322,13 +2471,18 @@ function Calendar({ projects,current,onOpenProject,onPatch }){
             const tasks=tasksOn(d), ranges=rangesOn(d);
             const isToday=d&&iso(d)===today();
             return (
-              <div key={i} className={"cal-day"+(!d?" dim":"")+(isToday?" today":"")}>
+              <div key={i} className={"cal-day"+(!d?" dim":"")+(isToday?" today":"")+(isPhone&&d&&pickDay===iso(d)?" picked":"")}
+                onClick={isPhone&&d?()=>setPickDay(iso(d)):undefined}>
                 {d&&<div className="mono" style={{fontSize:11,color:isToday?"var(--accent)":"var(--dim)"}}>{d.getDate()}</div>}
                 {ranges.map((p)=>(
                   <div key={p.id} onClick={()=>onOpenProject(p)} title={p.name}
                     style={{height:3,borderRadius:2,background:"var(--accent)",opacity:.55,cursor:"pointer"}} />
                 ))}
-                {tasks.slice(0,4).map(({p,m,tag})=>(
+                {isPhone&&tasks.length>0&&(
+                  <div className="cal-dots">{tasks.slice(0,6).map(({m,tag})=>(
+                    <span key={m.id} className="dot" style={{background:tag?tag.color:"#999",borderRadius:"50%"}} />))}</div>
+                )}
+                {!isPhone&&tasks.slice(0,4).map(({p,m,tag})=>(
                   <div key={m.id} onClick={()=>onOpenProject(p)} title={(briefText(m)||tag&&tag.label||"task")+" — "+p.name}
                     style={{fontSize:10,padding:"1px 5px",borderRadius:4,cursor:"pointer",
                             background:(tag?tag.color:"#999")+"26",color:tag?tag.color:"var(--muted)",
@@ -2338,11 +2492,24 @@ function Calendar({ projects,current,onOpenProject,onPatch }){
                     {briefText(m)?briefText(m).slice(0,22):(tag?tag.label:"task")}
                   </div>
                 ))}
-                {tasks.length>4&&<div style={{fontSize:10,color:"var(--dim)"}}>+{tasks.length-4} more</div>}
+                {!isPhone&&tasks.length>4&&<div style={{fontSize:10,color:"var(--dim)"}}>+{tasks.length-4} more</div>}
               </div>
             );
           })}
         </div>
+        {isPhone&&pickDay&&(()=>{ const list=tasksOn(parseISODate(pickDay));
+          return (
+            <div className="cal-list">
+              <div style={{fontSize:12,fontWeight:600,marginBottom:4}} className="mono">{pickDay}</div>
+              {list.length===0?<div style={{fontSize:12,color:"var(--dim)"}}>Nothing due.</div>:list.map(({p,m,tag})=>(
+                <button key={m.id} className="cal-task" onClick={()=>onOpenProject(p)}>
+                  <span className="dot" style={{background:tag?tag.color:"#999"}} />
+                  <span dir="auto" style={{flex:1,textAlign:"start"}}>{briefText(m)||(tag?tag.label:"task")}</span>
+                  <span style={{fontSize:11,color:"var(--dim)"}}>{p.name}</span>
+                </button>
+              ))}
+            </div>
+          ); })()}
         <p style={{color:"var(--dim)",fontSize:12,marginTop:14}}>
           Every project you've saved in this browser shows here. Set a due date on any shot and it lands on this grid.
         </p>
