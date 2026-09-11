@@ -712,6 +712,29 @@ function App(){
   const updAnnotation=(m,aid,p)=>patch({ markers:withAnns(m.id,(l)=>l.map((a)=>a.id===aid?Object.assign({},a,p):a)) });
   const delAnnotation=(m,aid)=>commit({ markers:withAnns(m.id,(l)=>l.filter((a)=>a.id!==aid)) });
 
+  // item 7: detach / attach script lines on one tag. Line tags just follow their lines; region tags
+  // keep their dragged span, trimmed when an edge line goes and stretched to cover lines added.
+  const relink=(m,nextIds)=>{
+    const ordered=cues.filter((c)=>nextIds.indexOf(c.id)>=0).map((c)=>c.id);
+    const p={ cueIds:ordered };
+    if(Number.isFinite(m.start)&&Number.isFinite(m.end)){
+      const span=(id)=>{ const c=cues[cueIndex[id]]; return c&&c.start!=null?{ s:c.start+offset, e:(c.end!=null?c.end:c.start)+offset }:null; };
+      const was=m.cueIds||[];
+      const kept=ordered.filter((id)=>was.indexOf(id)>=0).map(span).filter(Boolean);
+      const gone=was.filter((id)=>ordered.indexOf(id)<0).map(span).filter(Boolean);
+      const added=ordered.filter((id)=>was.indexOf(id)<0).map(span).filter(Boolean);
+      let s=m.start, e=m.end;
+      if(kept.length){
+        const ks=Math.min(...kept.map((k)=>k.s)), ke=Math.max(...kept.map((k)=>k.e));
+        if(gone.some((g)=>g.s<ks)) s=Math.max(s,ks);
+        if(gone.some((g)=>g.e>ke)) e=Math.min(e,ke);
+      }
+      if(added.length){ s=Math.min(s,...added.map((a)=>a.s)); e=Math.max(e,...added.map((a)=>a.e)); }
+      p.start=s; p.end=e;
+    }
+    commit({ markers:markers.map((x)=>x.id===m.id?Object.assign({},x,p):x) });
+  };
+
   const saveCue=(id,text,start)=>{
     commit({ cues:cues.map((c)=>c.id===id?Object.assign({},c,{text,start:start==null?c.start:start}):c) });
     setEditCue(null);
@@ -1169,7 +1192,7 @@ function App(){
                   onUpdate={updMarker} onDelete={delMarker}
                   onAddComment={addComment} onDelComment={delComment}
                   onAddAnnotation={addAnnotation} onUpdAnnotation={updAnnotation} onDelAnnotation={delAnnotation}
-                  annotId={annotId} setAnnotId={setAnnotId} />
+                  annotId={annotId} setAnnotId={setAnnotId} sel={sel} onRelink={relink} />
               ))}
             </div>
           </section>
@@ -1466,7 +1489,7 @@ function AnnotatedText({ text, anns, selectedId, titles }) {
 function GroupCard(props){
   const { gr,gi,tags,tagOf,fps,cues,cueIndex,expanded,onToggle,onSeek,onSelectLines,flash,
           onUpdate,onDelete,onAddComment,onDelComment,onAddAnnotation,onUpdAnnotation,onDelAnnotation,
-          annotId,setAnnotId } = props;
+          annotId,setAnnotId,sel,onRelink } = props;
   const multi=gr.items.length>1;
   const editing=gr.items.find((m)=>m.id===annotId)||null;   // tag in annotation mode, if it's in this folder
   const open=expanded||!multi||!!editing;
@@ -1478,6 +1501,8 @@ function GroupCard(props){
   const shown=useMemo(()=>editing?(editing.annotations||[]):
     [].concat(...gr.items.map((m)=>(m.annotations||[]).map((a)=>multi?Object.assign({},a,{_tag:tagOf(m.tagId).label}):a))),
   [editing,gr.items,multi,tagOf]);
+  // lines selected in the script pane that a tag doesn't have yet (item 7)
+  const addableFor=(m)=>(sel||[]).filter((id)=>(m.cueIds||[]).indexOf(id)<0&&cues[cueIndex[id]]&&cues[cueIndex[id]].kind==="line");
 
   return (
     <div className={"enter"+(editing?" annotating":"")} style={{background:"var(--panel)",border:"1px solid var(--line)",
