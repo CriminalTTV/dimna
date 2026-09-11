@@ -264,24 +264,59 @@ function blankProject(name){
            ui:{ scriptSize:16, waveH:96, splitPct:58 }, updated:Date.now() };
 }
 
-/* ---------------- waveform decode ---------------- */
-async function analyse(file, buckets) {
+/* ---------------- waveform decode ----------------
+   Decode once at 8 kHz and keep the samples (~52 MB for 27 min). Min/max
+   summaries per 16 / 256 / 4096 samples let any zoom level read only a few
+   values per screen pixel; zoomed right in, columns() reads raw samples.   */
+async function analyse(file) {
   const buf = await file.arrayBuffer();
   const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   const audio = await new Ctx(1,1,8000).decodeAudioData(buf);
-  const ch = audio.getChannelData(0);
-  const step = Math.max(1, Math.floor(ch.length/buckets));
-  const peaks = new Float32Array(buckets), rms = new Float32Array(buckets);
-  for (let i=0;i<buckets;i++){
-    let mx=0,sum=0,n=0;
-    for (let j=i*step, e=Math.min(j+step, ch.length); j<e; j++){
-      const v=Math.abs(ch[j]); if(v>mx)mx=v; sum+=ch[j]*ch[j]; n++;
-    }
-    peaks[i]=mx; rms[i]=n?Math.sqrt(sum/n):0;
+  const samples = audio.getChannelData(0), sr = audio.sampleRate;
+  const l16 = summarise(samples,false,16), l256 = summarise(l16,true,16), l4096 = summarise(l256,true,16);
+  let mx=0; for(let i=0;i<l4096.length;i++){ const v=Math.abs(l4096[i]); if(v>mx) mx=v; }
+  const norm = mx>0 ? 1/mx : 1;
+  // loudness per 50 ms, for the silence shading
+  const win = Math.max(1,Math.round(sr*0.05)), rms = new Float32Array(Math.ceil(samples.length/win));
+  for(let i=0;i<rms.length;i++){
+    let sum=0; const s=i*win, e=Math.min(s+win,samples.length);
+    for(let j=s;j<e;j++) sum+=samples[j]*samples[j];
+    rms[i]=Math.sqrt(sum/Math.max(1,e-s))*norm;
   }
-  let mx=0; for(let i=0;i<buckets;i++) if(peaks[i]>mx)mx=peaks[i];
-  if(mx>0) for(let i=0;i<buckets;i++){ peaks[i]/=mx; rms[i]/=mx; }
-  return { peaks:Array.from(peaks), rms:Array.from(rms), duration:audio.duration };
+  return { samples, sr, norm, rms, duration:audio.duration,
+           levels:[{size:16,data:l16},{size:256,data:l256},{size:4096,data:l4096}] };
+}
+// one [min,max] pair per `factor` inputs; input is raw samples or [min,max] pairs
+function summarise(src, pairs, factor){
+  const n = pairs ? src.length/2 : src.length, m = Math.ceil(n/factor), out = new Float32Array(m*2);
+  for(let i=0;i<m;i++){
+    let lo=Infinity, hi=-Infinity; const e=Math.min(n,(i+1)*factor);
+    for(let j=i*factor;j<e;j++){
+      const a = pairs ? src[2*j] : src[j], b = pairs ? src[2*j+1] : src[j];
+      if(a<lo) lo=a; if(b>hi) hi=b;
+    }
+    out[2*i]=lo; out[2*i+1]=hi;
+  }
+  return out;
+}
+// normalised [min,max] for each of `cols` columns across the window vs..ve (seconds)
+function columns(wave, vs, ve, cols){
+  const out = new Float32Array(cols*2), n = wave.samples.length;
+  const s0 = vs*wave.sr, spp = Math.max(1e-6,(ve-vs)*wave.sr/cols);
+  let lvl = null; for(const L of wave.levels) if(L.size<=spp) lvl=L;   // coarsest summary still finer than a column
+  for(let x=0;x<cols;x++){
+    const a = Math.max(0,Math.floor(s0+x*spp)), b = Math.min(n,Math.max(a+1,Math.floor(s0+(x+1)*spp)));
+    let lo=Infinity, hi=-Infinity;
+    if(lvl){
+      const d=lvl.data, i1=Math.min(d.length/2,Math.ceil(b/lvl.size));
+      for(let i=Math.floor(a/lvl.size);i<i1;i++){ if(d[2*i]<lo) lo=d[2*i]; if(d[2*i+1]>hi) hi=d[2*i+1]; }
+    } else {
+      for(let j=a;j<b;j++){ const v=wave.samples[j]; if(v<lo) lo=v; if(v>hi) hi=v; }
+    }
+    if(lo>hi){ lo=0; hi=0; }
+    out[2*x]=lo*wave.norm; out[2*x+1]=hi*wave.norm;
+  }
+  return out;
 }
 function silentRuns(rms, duration, thresh, minSec){
   const per = duration/rms.length, runs=[]; let s=-1;
@@ -347,6 +382,7 @@ function App(){
 
   const [wave,setWave]=useState(null);
   const [waveBusy,setWaveBusy]=useState(false);
+  const [waveSize,setWaveSize]=useState({ w:0, h:0 });
   const [showSilence,setShowSilence]=useState(true);
   const [zoom,setZoom]=useState(1);
   const [viewStart,setViewStart]=useState(0);
@@ -565,14 +601,15 @@ function App(){
     audioFileRef.current=f;
     if(mayUpload!==false) setAudioUploaded(false);
     setAudioUrl(URL.createObjectURL(f)); patch({audioName:f.name});
-    setTime(0); setPlaying(false); setWave(null); setWaveBusy(true); setZoom(1); setViewStart(0);
-    try{ setWave(await analyse(f,4000)); } catch(e){ say("Couldn't read the waveform from that file."); }
+    setTime(0); setPlaying(false); setWave(null); setWaveBusy(true); setZoom(1); setViewStart(0); setDuration(0);
+    try{ const w=await analyse(f); setWave(w); setDuration((d)=>d||w.duration); }
+    catch(e){ say("Couldn't read the waveform from that file."); }
     setWaveBusy(false);
     if(mayUpload!==false && autoUpload && sb && user) uploadAudio(f,proj);
   };
   const openAudio=(e)=>{ const f=e.target.files&&e.target.files[0]; if(f) loadAudioFile(f); e.target.value=""; };
   const toggle=useCallback(()=>{ const a=audioRef.current; if(!a||!audioUrl) return; if(a.paused)a.play(); else a.pause(); },[audioUrl]);
-  const seek=useCallback((t)=>{ const a=audioRef.current; if(!a) return;
+  const seek=useCallback((t)=>{ const a=audioRef.current; if(!a||!isFinite(t)) return;
     a.currentTime=clamp(t,0,duration||0); setTime(a.currentTime); },[duration]);
   const nudge=useCallback((d)=>seek((audioRef.current?audioRef.current.currentTime:0)+d),[seek]);
   const jumpCue=useCallback((dir)=>{
@@ -689,60 +726,79 @@ function App(){
     if(time<viewStart+w*0.1||time>viewStart+w*0.9) setViewStart(clamp(time-w/2,0,duration-w));
   },[time,zoom,duration]);
 
-  /* ---- waveform drawing ---- */
+  /* ---- waveform drawing ----
+     One ResizeObserver for the life of the page. The per-pixel min/max
+     columns are recomputed only when the view (zoom, scroll, width) changes;
+     playback ticks just repaint from them.                                 */
   useEffect(()=>{
-    const cv=canvasRef.current, wrap=waveWrap.current;
-    if(!cv||!wrap) return;
-    const draw=()=>{
-      const w=wrap.clientWidth, h=wrap.clientHeight, dpr=window.devicePixelRatio||1;
-      cv.width=w*dpr; cv.height=h*dpr; cv.style.width=w+"px"; cv.style.height=h+"px";
-      const g=cv.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,w,h);
-      if(!wave||!duration) return;
-      const win=duration/zoom, vs=clamp(viewStart,0,Math.max(0,duration-win)), ve=vs+win;
-      const X=(t)=>((t-vs)/win)*w;
-      const mid=h/2, n=wave.peaks.length;
+    const wrap=waveWrap.current; if(!wrap) return;
+    const ro=new ResizeObserver(()=>setWaveSize({ w:wrap.clientWidth, h:wrap.clientHeight }));
+    ro.observe(wrap);
+    return ()=>ro.disconnect();
+  },[]);
+  const waveWin=useMemo(()=>{
+    if(!duration) return null;
+    const win=duration/zoom;
+    return { vs:clamp(viewStart,0,Math.max(0,duration-win)), win };
+  },[duration,zoom,viewStart]);
+  const waveCols=useMemo(()=>{
+    if(!wave||!waveWin||!waveSize.w) return null;
+    const cols=Math.max(1,Math.round(waveSize.w*(window.devicePixelRatio||1)));
+    return columns(wave,waveWin.vs,waveWin.vs+waveWin.win,cols);
+  },[wave,waveWin,waveSize.w]);
+  const silence=useMemo(()=>wave?silentRuns(wave.rms,wave.duration,0.035,0.4):[],[wave]);
 
-      if(showSilence){
-        g.fillStyle="rgba(214,163,84,.10)";
-        silentRuns(wave.rms,wave.duration,0.035,0.4).forEach(([a,b])=>{
-          if(b<vs||a>ve) return;
-          g.fillRect(X(a),0,Math.max(1,X(b)-X(a)),h);
-        });
-      }
-      const bar=(x0,x1,color)=>{
-        g.fillStyle=color;
-        for(let x=Math.max(0,Math.floor(x0));x<Math.min(w,Math.ceil(x1));x++){
-          const t=vs+(x/w)*win, i=clamp(Math.floor((t/wave.duration)*n),0,n-1);
-          const bh=Math.max(1,(wave.peaks[i]||0)*(h-10));
-          g.fillRect(x,mid-bh/2,1,bh);
-        }
-      };
-      bar(0,w,"#5E5647");
-      bar(0,X(time),"#C9A87C");
+  useEffect(()=>{
+    const cv=canvasRef.current, { w,h }=waveSize;
+    if(!cv||!w||!h) return;
+    const dpr=window.devicePixelRatio||1;
+    if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){
+      cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr); cv.style.width=w+"px"; cv.style.height=h+"px";
+    }
+    const g=cv.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,w,h);
+    if(!wave||!waveWin||!waveCols) return;
+    const { vs,win }=waveWin, ve=vs+win;
+    const X=(t)=>((t-vs)/win)*w;
+    const mid=h/2, amp=(h-10)/2;
 
-      sorted.forEach((m)=>{
-        const r=range(m); if(r.end<vs||r.start>ve) return;
-        const t=tagOf(m.tagId), x=X(r.start), ww=Math.max(2,X(r.end)-X(r.start));
-        g.fillStyle=t.color+"2E"; g.fillRect(x,0,ww,h);
-        g.fillStyle=t.color; g.fillRect(x,h-3,ww,3);
-        if((m.status||"todo")==="done"){ g.fillStyle="rgba(140,184,138,.5)"; g.fillRect(x,0,ww,3); }
+    if(showSilence){
+      g.fillStyle="rgba(214,163,84,.10)";
+      silence.forEach(([a,b])=>{
+        if(b<vs||a>ve) return;
+        g.fillRect(X(a),0,Math.max(1,X(b)-X(a)),h);
       });
-
-      if(region){
-        const a=Math.min(region.a,region.b), b=Math.max(region.a,region.b);
-        g.fillStyle="rgba(221,214,203,.16)"; g.fillRect(X(a),0,Math.max(2,X(b)-X(a)),h);
-        g.strokeStyle="#DDD6CB"; g.lineWidth=1;
-        g.strokeRect(X(a)+.5,.5,Math.max(2,X(b)-X(a))-1,h-1);
-      }
-      if(zoom>1){
-        g.fillStyle="rgba(109,100,88,.5)";
-        g.fillRect((vs/duration)*w,h-1.5,Math.max(6,(win/duration)*w),1.5);
+    }
+    // one column per device pixel, drawn from its min to its max
+    const n=waveCols.length/2, px=w/n;
+    const bars=(x0,x1,color)=>{
+      g.fillStyle=color;
+      for(let i=Math.max(0,Math.floor(x0/px)), e=Math.min(n,Math.ceil(x1/px)); i<e; i++){
+        const top=mid-waveCols[2*i+1]*amp, bot=mid-waveCols[2*i]*amp;
+        g.fillRect(i*px,top,px,Math.max(1,bot-top));
       }
     };
-    draw();
-    const ro=new ResizeObserver(draw); ro.observe(wrap);
-    return ()=>ro.disconnect();
-  },[wave,showSilence,time,duration,sorted,range,tagOf,zoom,viewStart,region,ui.waveH]);
+    bars(0,w,"#5E5647");
+    bars(0,X(time),"#C9A87C");
+
+    sorted.forEach((m)=>{
+      const r=range(m); if(r.end<vs||r.start>ve) return;
+      const t=tagOf(m.tagId), x=X(r.start), ww=Math.max(2,X(r.end)-X(r.start));
+      g.fillStyle=t.color+"2E"; g.fillRect(x,0,ww,h);
+      g.fillStyle=t.color; g.fillRect(x,h-3,ww,3);
+      if((m.status||"todo")==="done"){ g.fillStyle="rgba(140,184,138,.5)"; g.fillRect(x,0,ww,3); }
+    });
+
+    if(region){
+      const a=Math.min(region.a,region.b), b=Math.max(region.a,region.b);
+      g.fillStyle="rgba(221,214,203,.16)"; g.fillRect(X(a),0,Math.max(2,X(b)-X(a)),h);
+      g.strokeStyle="#DDD6CB"; g.lineWidth=1;
+      g.strokeRect(X(a)+.5,.5,Math.max(2,X(b)-X(a))-1,h-1);
+    }
+    if(zoom>1){
+      g.fillStyle="rgba(109,100,88,.5)";
+      g.fillRect((vs/duration)*w,h-1.5,Math.max(6,(win/duration)*w),1.5);
+    }
+  },[wave,waveWin,waveCols,silence,showSilence,time,duration,sorted,range,tagOf,zoom,region,waveSize]);
 
   /* ---- waveform interaction ---- */
   const waveT=(clientX)=>{
@@ -1192,7 +1248,8 @@ function App(){
         {audioUrl&&(
           <audio ref={audioRef} src={audioUrl}
             onTimeUpdate={(e)=>setTime(e.target.currentTime)}
-            onLoadedMetadata={(e)=>{setDuration(e.target.duration);e.target.playbackRate=rate;}}
+            onLoadedMetadata={(e)=>{ if(isFinite(e.target.duration)) setDuration(e.target.duration); e.target.playbackRate=rate; }}
+            onDurationChange={(e)=>{ const d=e.target.duration; if(isFinite(d)&&d>0) setDuration(d); }}
             onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onEnded={()=>setPlaying(false)} />
         )}
       </footer>

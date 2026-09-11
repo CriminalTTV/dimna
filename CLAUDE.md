@@ -27,9 +27,12 @@ double-clicking a file before it had a domain.
   `//` ignored. See SCRIPT-FORMAT.txt.
 - Gap filling on import: stretches each line's end to the next line's start,
   preserving the real end in `origEnd` so silences stay visible on the waveform.
-- Waveform: decoded at 8 kHz via OfflineAudioContext to keep memory sane on
-  27-minute files. Zoom 1–120×, drag to select a region, click to seek.
-  Silence detection shades low-RMS runs.
+- Waveform: decoded once at 8 kHz via OfflineAudioContext (the samples stay
+  in memory, ~52 MB for 27 minutes) plus min/max summaries per 16/256/4096
+  samples. `columns()` builds one min/max pair per screen pixel for the
+  visible window only when the view changes, so it's sharp at every zoom
+  (1–120×). Drag to select a region, click to seek. Silence detection shades
+  low-RMS runs (50 ms windows).
 - Tagging: select lines (shift/cmd-click) or drag a waveform region, then press
   1–9. Tags are user-editable (label, colour, order) and stored per project.
 - Shot list: tags sharing a span group into expandable folders. Each tag has a
@@ -110,8 +113,6 @@ currently has no build step at all.
 
 ## Known rough edges
 
-- The waveform redraw effect depends on `time`, so it recreates its
-  ResizeObserver several times a second. Works, but wasteful.
 - No virtualisation on the script list. ~520 cues is fine; 5,000 would not be.
 - Mobile layout stacks at 860px but is cramped. Worth real attention — the
   user edits on his phone.
