@@ -72,6 +72,8 @@
 
   .ann { border-radius:3px; padding:0 1px; cursor:help; }
   .ann-edit .ann { cursor:pointer; }
+  .line-x { color:var(--dim); flex:none; opacity:.55; }
+  .line-x:hover { opacity:1; color:var(--bad) !important; }
   .ann-sel { outline:2px solid var(--text); outline-offset:1px; }
   .ann-tip { position:fixed; z-index:320; transform:translate(-50%,calc(-100% - 6px)); max-width:300px;
              background:var(--raise); border:1px solid var(--line2); border-radius:6px; padding:5px 9px;
@@ -1542,6 +1544,9 @@ function GroupCard(props){
 
       {lines.length>0&&(
         <AnnotatableLines lines={lines} anns={shown} editable={!!editing} size={editing?17:15}
+          removeLabel={editing?"Remove this line from "+tagOf(editing.tagId).label:null}
+          onRemoveLine={editing&&(Number.isFinite(editing.start)||lines.length>1)
+            ?(id)=>onRelink(editing,(editing.cueIds||[]).filter((x)=>x!==id)):null}
           onAdd={(a)=>editing&&onAddAnnotation(editing,a)}
           onUpdate={(aid,p)=>editing&&onUpdAnnotation(editing,aid,p)}
           onDelete={(aid)=>editing&&onDelAnnotation(editing,aid)} />
@@ -1552,7 +1557,8 @@ function GroupCard(props){
           onUpdate={onUpdate} onDelete={onDelete}
           onAddComment={onAddComment} onDelComment={onDelComment}
           canAnnotate={lines.length>0} annotating={m.id===annotId}
-          onAnnotate={()=>setAnnotId(m.id===annotId?null:m.id)} />
+          onAnnotate={()=>setAnnotId(m.id===annotId?null:m.id)}
+          addable={addableFor(m)} onAddLines={()=>onRelink(m,(m.cueIds||[]).concat(addableFor(m)))} />
       ))}
     </div>
   );
@@ -1562,7 +1568,7 @@ function GroupCard(props){
    Acrobat-style: in annotation mode, select text → pick a tool; click an
    existing highlight → popup for its note / colour / style; Delete removes
    the picked highlight; hovering shows its note.                          */
-function AnnotatableLines({ lines, anns, editable, size, onAdd, onUpdate, onDelete }){
+function AnnotatableLines({ lines, anns, editable, size, onAdd, onUpdate, onDelete, onRemoveLine, removeLabel }){
   const ref=useRef(null), noteRef=useRef(null);
   const [tool,setTool]=useState(null);       // pending text selection {cueId,s,e,x,y}
   const [picked,setPicked]=useState(null);   // highlight picked by a click {id,x,y}
@@ -1645,10 +1651,16 @@ function AnnotatableLines({ lines, anns, editable, size, onAdd, onUpdate, onDele
     <div ref={ref} className={"ann-area"+(editable?" ann-edit":"")} style={{position:"relative",marginTop:8}}
       onMouseUp={grab} onClick={pick} onMouseOver={hover} onMouseLeave={()=>setTip(null)}>
       {lines.map((c)=>(
-        <div key={c.id} data-cueid={c.id} dir={hasArabic(c.text)?"rtl":"ltr"}
-          style={{fontSize:size||15,color:editable?"var(--text)":"var(--muted)",lineHeight:1.95,
-                  textAlign:"start",transition:"font-size .16s ease, color .16s ease"}}>
-          <AnnotatedText text={c.text} anns={anns.filter((a)=>a.cueId===c.id)} selectedId={picked&&picked.id} />
+        <div key={c.id} style={{display:"flex",alignItems:"baseline",gap:6}}>
+          <div data-cueid={c.id} dir={hasArabic(c.text)?"rtl":"ltr"}
+            style={{flex:1,fontSize:size||15,color:editable?"var(--text)":"var(--muted)",lineHeight:1.95,
+                    textAlign:"start",transition:"font-size .16s ease, color .16s ease"}}>
+            <AnnotatedText text={c.text} anns={anns.filter((a)=>a.cueId===c.id)} selectedId={picked&&picked.id} />
+          </div>
+          {onRemoveLine&&(
+            <button className="btn btn-xs btn-ghost line-x" title={removeLabel||"Remove this line from the tag"}
+              onClick={(e)=>{ e.stopPropagation(); onRemoveLine(c.id); }}>✕</button>
+          )}
         </div>
       ))}
 
@@ -1706,7 +1718,7 @@ function AnnotatableLines({ lines, anns, editable, size, onAdd, onUpdate, onDele
 }
 
 /* =============== marker block =============== */
-function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onDelComment,canAnnotate,annotating,onAnnotate }){
+function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onDelComment,canAnnotate,annotating,onAnnotate,addable,onAddLines }){
   const t=tagOf(m.tagId);
   const [editingNote,setEditingNote]=useState(false);
   const [draft,setDraft]=useState(m.note||"");
@@ -1732,6 +1744,12 @@ function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onDelCo
           onChange={(v)=>onUpdate(m.id,{due:v})}
           style={{fontSize:11,color:m.due&&m.due<today()&&(m.status||"todo")!=="done"?"var(--bad)":"var(--muted)"}} />
         <div style={{flex:1}} />
+        {addable&&addable.length>0&&(
+          <button className="btn btn-xs btn-ghost" style={{color:"var(--accent)"}} onClick={onAddLines}
+            title="Attach the lines selected in the script to this tag">
+            ＋ {addable.length} line{addable.length>1?"s":""}
+          </button>
+        )}
         {canAnnotate&&(
           <button className={"btn btn-xs "+(annotating?"btn-primary":"btn-ghost")} onClick={onAnnotate}
             title="Highlight and annotate the script for this tag" style={annotating?undefined:{color:"var(--muted)"}}>
