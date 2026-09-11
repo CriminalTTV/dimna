@@ -63,6 +63,9 @@
   .cue.active .cue-time { color:var(--warn); }
   .cue.head { border-inline-start-color:var(--line2); margin-top:14px; }
   .cue.head .cue-text { font-weight:700; color:var(--accent); letter-spacing:.01em; }
+  /* script lines are picked by click / shift-click, never by text selection */
+  .cue { user-select:none; -webkit-user-select:none; }
+  .cue textarea, .cue input, .ann-area { user-select:text; -webkit-user-select:text; }
 
   .ann { border-radius:3px; padding:0 1px; cursor:help; }
 
@@ -989,6 +992,7 @@ function App(){
                 return (
                   <div key={c.id} ref={(el)=>cueRefs.current[i]=el}
                     className={"cue"+(isActive?" active":"")+(isSel?" sel":"")+(isPast?" past":"")+(c.kind==="head"?" head":"")}
+                    onMouseDown={(e)=>{ if(editCue!==c.id&&(e.shiftKey||e.metaKey||e.ctrlKey)) e.preventDefault(); }}
                     onClick={(e)=>editCue!==c.id&&clickCue(c,i,e)}
                     onDoubleClick={()=>setEditCue(c.id)}>
                     <span className="mono cue-time">{c.start!==null?clock(c.start+offset):"—"}</span>
@@ -1337,7 +1341,7 @@ function AnnotatableLines({ lines, marker, open, onAddAnnotation, onDelAnnotatio
 
   const anns=(marker.annotations||[]);
   return (
-    <div ref={ref} style={{position:"relative",marginTop:8}} onMouseUp={grab}>
+    <div ref={ref} className="ann-area" style={{position:"relative",marginTop:8}} onMouseUp={grab}>
       {lines.map((c)=>(
         <div key={c.id} data-cueid={c.id} dir={hasArabic(c.text)?"rtl":"ltr"}
           style={{fontSize:15,color:"var(--muted)",lineHeight:1.95,
