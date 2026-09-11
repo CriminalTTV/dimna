@@ -284,14 +284,57 @@ function cuesInRange(cues, a, b, offset) {
 
 /* ---------------- storage ---------------- */
 const LS="dimna:projects", LAST="dimna:last";
-const readAll = () => { try { return JSON.parse(localStorage.getItem(LS)||"{}"); } catch(e){ return {}; } };
+const readAll = () => {
+  let o; try { o=JSON.parse(localStorage.getItem(LS)||"{}")||{}; } catch(e){ return {}; }
+  Object.keys(o).forEach((k)=>{ o[k]=migrateProject(o[k]); });
+  return o;
+};
 const writeAll = (o) => { try { localStorage.setItem(LS, JSON.stringify(o)); return true; } catch(e){ return false; } };
 function blankProject(name){
   return { id:uid(), name:name||"Untitled", cues:[], markers:[],
            tags:DEFAULT_TAGS.map((t)=>Object.assign({},t)), fps:25, offset:0, audioName:"",
-           startDate:"", dueDate:"",
-           ui:{ scriptSize:16, waveH:96, splitPct:58 }, updated:Date.now() };
+           startDate:"", dueDate:"", schemaVersion:SCHEMA,
+           ui:{ scriptSize:16, waveH:96, splitPct:58, shotMode:"comfortable" }, updated:Date.now() };
 }
+
+/* ---------------- schema / migration ----------------
+   Every project that enters the app — localStorage, Supabase, .json import,
+   drag-drop — goes through migrateProject(). It is safe to run any number of
+   times: each marker is checked on its own, because an old tab that hasn't
+   reloaded can keep saving old-shape data. Unknown fields are carried through.
+   v2: the separate brief (marker.note) became the first comment, flagged brief. */
+const SCHEMA=2;
+function migrateMarker(m){
+  const x=Object.assign({},m);
+  x.cueIds=Array.isArray(x.cueIds)?x.cueIds:[];
+  x.comments=Array.isArray(x.comments)?x.comments.slice():[];
+  x.annotations=Array.isArray(x.annotations)?x.annotations:[];
+  if(!x.status) x.status="todo";
+  if(x.due==null) x.due="";
+  if(typeof x.note==="string"&&x.note.trim()){
+    const moved={ id:uid(), text:x.note.trim(), at:Date.now() };
+    if(x.comments.some((c)=>c&&c.brief)) x.comments.splice(1,0,moved);   // a brief already exists: keep the note as a follow-up
+    else x.comments.unshift(Object.assign(moved,{ brief:true }));
+    x.note="";
+  }
+  return x;
+}
+function migrateProject(p){
+  if(!p||typeof p!=="object") return p;
+  const x=Object.assign({},p);
+  x.cues=Array.isArray(x.cues)?x.cues:[];
+  x.markers=(Array.isArray(x.markers)?x.markers:[]).map(migrateMarker);
+  x.tags=Array.isArray(x.tags)&&x.tags.length?x.tags:DEFAULT_TAGS.map((t)=>Object.assign({},t));
+  x.ui=Object.assign({ scriptSize:16, waveH:96, splitPct:58, shotMode:"comfortable" }, x.ui||{});
+  x.schemaVersion=SCHEMA;
+  return x;
+}
+// the brief is the comment flagged brief (item 3b); older data may still carry marker.note
+const briefOf=(m)=>((m&&m.comments)||[]).find((c)=>c&&c.brief)||null;
+const briefText=(m)=>{ const b=briefOf(m); return b?b.text:((m&&m.note)||""); };
+const ago=(ts)=>{ const s=(Date.now()-ts)/1000;
+  if(s<60) return "just now"; if(s<3600) return Math.floor(s/60)+"m ago"; if(s<86400) return Math.floor(s/3600)+"h ago";
+  return localISO(new Date(ts)); };
 
 /* ---------------- waveform decode ----------------
    Decode once at 8 kHz and keep the samples (~52 MB for 27 min). Min/max
@@ -511,8 +554,8 @@ function App(){
       const all=readAll();
       (data||[]).forEach((row)=>{
         const local=all[row.id];
-        const remote=Object.assign({},row.data,{ id:row.id,
-          cloudAudio:row.audio_path||"", cloudAudioName:row.audio_name||"" });
+        const remote=migrateProject(Object.assign({},row.data,{ id:row.id,
+          cloudAudio:row.audio_path||"", cloudAudioName:row.audio_name||"" }));
         if(!local||(remote.updated||0)>(local.updated||0)) all[row.id]=remote;
         else if(local) all[row.id]=Object.assign({},local,{cloudAudio:row.audio_path||"",cloudAudioName:row.audio_name||""});
       });
@@ -943,7 +986,7 @@ function App(){
     const resolve=(label)=>(nextTags.find((t)=>t.label.toLowerCase()===label.toLowerCase())||nextTags[0]).id;
     const incoming=rows.map((r)=>({
       id:uid(), tagId:r.tagId||resolve(r.tagLabel), cueIds:[], start:r.start, end:r.end,
-      note:r.note, comments:[], annotations:[], status:r.status, due:r.due,
+      comments:r.note?[{ id:uid(), text:r.note, at:Date.now(), brief:true }]:[], annotations:[], status:r.status, due:r.due,
     }));
     let keep=markers;
     if(mode==="replace"){
@@ -964,8 +1007,7 @@ function App(){
       const f=e.dataTransfer.files&&e.dataTransfer.files[0]; if(!f) return;
       const n=f.name.toLowerCase();
       if(/\.(mp3|wav|m4a|aac|ogg|flac|mp4|mov|mkv|webm)$/.test(n)) return loadAudioFile(f);
-      if(/\.json$/.test(n)) return readTxt(f,(t)=>{ try{ const d=JSON.parse(t); if(!d.cues) throw 0;
-        d.id=d.id||uid(); setProjRaw(d); say("Loaded “"+(d.name||"project")+"”."); }catch(err){ say("Not a Dimna project file."); } });
+      if(/\.json$/.test(n)) return readTxt(f,loadProjectJson);
       if(/\.(txt|srt|vtt|md)$/.test(n)) return readTxt(f,(t)=>{
         if(/^\s*[^|\n]+\|[^|\n]+\|/m.test(t) && !/-->/.test(t)) setTagImport({raw:t});
         else { setImportText(t); setImportOpen(true); }
@@ -993,8 +1035,8 @@ function App(){
       if(texts.length) out+="Script: "+texts.join(" ")+"\n\n";
       gr.items.forEach((m)=>{
         out+="- **"+tagOf(m.tagId).label+"** ["+(STATUS.find((s)=>s.id===(m.status||"todo"))||{}).label+
-             (m.due?" · due "+m.due:"")+"] — "+(m.note||"(no brief yet)")+"\n";
-        (m.comments||[]).forEach((c)=>out+="    - "+c.text+"\n");
+             (m.due?" · due "+m.due:"")+"] — "+(briefText(m)||"(no brief yet)")+"\n";
+        (m.comments||[]).filter((c)=>!c.brief).forEach((c)=>out+="    - "+c.text+"\n");
         (m.annotations||[]).forEach((a)=>{
           const c=cues[cueIndex[a.cueId]];
           if(c) out+="    - “"+c.text.slice(a.s,a.e)+"” → "+(a.note||a.style)+"\n";
@@ -1008,21 +1050,27 @@ function App(){
     const esc=(s)=>'"'+String(s==null?"":s).replace(/"/g,'""')+'"';
     const rows=[["Marker Name","Description","In","Out","Duration","Marker Type","Status","Due"]];
     sorted.forEach((m,i)=>{ const r=range(m);
-      rows.push([(i+1)+" "+tagOf(m.tagId).label,m.note||"",tc(r.start,fps),tc(r.end,fps),
+      rows.push([(i+1)+" "+tagOf(m.tagId).label,briefText(m),tc(r.start,fps),tc(r.end,fps),
                  tc(Math.max(0,r.end-r.start),fps),"Comment",(m.status||"todo"),m.due||""]); });
     dl(slug()+"-markers.csv","\uFEFF"+rows.map((r)=>r.map(esc).join(",")).join("\n"),"text/csv;charset=utf-8");
   };
   const exportTagList=()=>{
     let out="# Dimna tag list — "+proj.name+"\n# tag | start | end | status | due | note\n";
     sorted.forEach((m)=>{ const r=range(m);
-      out+=[tagOf(m.tagId).label,clock(r.start),clock(r.end),(m.status||"todo"),(m.due||""),(m.note||"")].join(" | ")+"\n"; });
+      out+=[tagOf(m.tagId).label,clock(r.start),clock(r.end),(m.status||"todo"),(m.due||""),briefText(m).replace(/\s*\n\s*/g," ")].join(" | ")+"\n"; });
     dl(slug()+"-tags.txt",out,"text/plain;charset=utf-8");
   };
   const exportProject=()=>dl(slug()+".dimna.json",JSON.stringify(proj,null,2),"application/json");
+  // .json import and drag-drop both land here: old exports are upgraded on the way in
+  function loadProjectJson(t){
+    try{
+      const raw=JSON.parse(t); if(!raw||!Array.isArray(raw.cues)) throw 0;
+      const d=migrateProject(raw); d.id=d.id||uid();
+      setProjRaw(d); setSel([]); setAnnotId(null); say("Loaded “"+(d.name||"project")+"”.");
+    }catch(err){ say("Not a Dimna project file."); }
+  }
   const importProject=(e)=>{ const f=e.target.files&&e.target.files[0]; if(!f) return;
-    readTxt(f,(t)=>{ try{ const d=JSON.parse(t); if(!d.cues) throw 0; d.id=d.id||uid();
-      setProjRaw(d); say("Loaded “"+(d.name||"project")+"”."); }catch(err){ say("Not a Dimna project file."); } });
-    e.target.value=""; };
+    readTxt(f,loadProjectJson); e.target.value=""; };
 
   const visibleCues=useMemo(()=>{
     if(!query.trim()) return cues;
@@ -1829,9 +1877,9 @@ function Board({ markers,tagOf,range,fps,onUpdate,onSeek,cues,cueIndex }){
                       <div style={{flex:1}} />
                       {m.due&&<span className="mono" style={{fontSize:10,color:late?"var(--bad)":"var(--dim)"}}>{m.due}</span>}
                     </div>
-                    {m.note&&<div dir={hasArabic(m.note)?"rtl":"ltr"}
-                      style={{marginTop:7,fontSize:13,lineHeight:1.7}}>{m.note}</div>}
-                    {!m.note&&texts.length>0&&<div dir={hasArabic(texts[0])?"rtl":"ltr"}
+                    {briefText(m)&&<div dir="auto"
+                      style={{marginTop:7,fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap"}}>{briefText(m)}</div>}
+                    {!briefText(m)&&texts.length>0&&<div dir={hasArabic(texts[0])?"rtl":"ltr"}
                       style={{marginTop:7,fontSize:13,color:"var(--muted)",lineHeight:1.8}}>{texts.join(" ").slice(0,120)}</div>}
                     <div style={{display:"flex",gap:5,marginTop:8}}>
                       {STATUS.filter((x)=>x.id!==s.id).map((x)=>(
@@ -1913,13 +1961,13 @@ function Calendar({ projects,current,onOpenProject,onPatch }){
                     style={{height:3,borderRadius:2,background:"var(--accent)",opacity:.55,cursor:"pointer"}} />
                 ))}
                 {tasks.slice(0,4).map(({p,m,tag})=>(
-                  <div key={m.id} onClick={()=>onOpenProject(p)} title={(m.note||tag&&tag.label||"task")+" — "+p.name}
+                  <div key={m.id} onClick={()=>onOpenProject(p)} title={(briefText(m)||tag&&tag.label||"task")+" — "+p.name}
                     style={{fontSize:10,padding:"1px 5px",borderRadius:4,cursor:"pointer",
                             background:(tag?tag.color:"#999")+"26",color:tag?tag.color:"var(--muted)",
                             overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",
                             opacity:(m.status||"todo")==="done"?.5:1,
                             textDecoration:(m.status||"todo")==="done"?"line-through":"none"}}>
-                    {m.note?m.note.slice(0,22):(tag?tag.label:"task")}
+                    {briefText(m)?briefText(m).slice(0,22):(tag?tag.label:"task")}
                   </div>
                 ))}
                 {tasks.length>4&&<div style={{fontSize:10,color:"var(--dim)"}}>+{tasks.length-4} more</div>}
