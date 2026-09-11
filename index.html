@@ -32,6 +32,8 @@
   button:disabled { cursor:default; opacity:.38; }
   :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
   .mono { font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+  /* timecodes and numbers always read left-to-right, even inside an RTL interface */
+  span.mono, button.mono, input.mono { direction:ltr; unicode-bidi:isolate; }
 
   .btn { background:var(--panel2); border:1px solid var(--line); border-radius:7px; padding:7px 12px; font-size:13px; }
   .btn:hover:not(:disabled) { background:var(--raise); border-color:var(--line2); }
@@ -60,6 +62,7 @@
   .cue-text { line-height:1.95; flex:1; transition:color .16s ease,opacity .16s ease; }
   .cue.active .cue-text { color:#FFF8EA; }
   .cue-time { font-size:11px; color:var(--dim); flex:none; padding-top:4px; min-width:44px; }
+  [dir="rtl"] .cue-time { text-align:right; }
   .cue.active .cue-time { color:var(--warn); }
   .cue.head { border-inline-start-color:var(--line2); margin-top:14px; }
   .cue.head .cue-text { font-weight:700; color:var(--accent); letter-spacing:.01em; }
@@ -558,6 +561,11 @@ function App(){
   /* ---- derived ---- */
   const cueIndex=useMemo(()=>{ const m={}; cues.forEach((c,i)=>m[c.id]=i); return m; },[cues]);
   const timedCount=useMemo(()=>cues.filter((c)=>c.start!==null).length,[cues]);
+  // the whole interface follows the script: RTL when most lines are Arabic (each line still sets its own dir)
+  const uiDir=useMemo(()=>{
+    const lines=cues.filter((c)=>c.kind==="line");
+    return lines.length && lines.filter((c)=>hasArabic(c.text)).length*2>lines.length ? "rtl" : "ltr";
+  },[cues]);
 
   const activeIdx=useMemo(()=>{
     let found=-1;
@@ -858,8 +866,9 @@ function App(){
     e.preventDefault();
     const move=(ev)=>{
       const b=bodyRef.current; if(!b) return;
-      const r=b.getBoundingClientRect();
-      setUi({ splitPct: clamp(((ev.clientX-r.left)/r.width)*100, 22, 82) });
+      const r=b.getBoundingClientRect(), rtl=getComputedStyle(b).direction==="rtl";
+      // splitPct is the script pane's share; in RTL that pane sits on the right
+      setUi({ splitPct: clamp(((rtl?r.right-ev.clientX:ev.clientX-r.left)/r.width)*100, 22, 82) });
     };
     const up=()=>{ window.removeEventListener("mousemove",move); window.removeEventListener("mouseup",up); };
     window.addEventListener("mousemove",move); window.addEventListener("mouseup",up);
@@ -988,12 +997,12 @@ function App(){
 
   /* ================= render ================= */
   return (
-    <div style={{height:"100%",display:"flex",flexDirection:"column"}}>
+    <div dir={uiDir} style={{height:"100%",display:"flex",flexDirection:"column"}}>
 
       <header style={{flex:"none",display:"flex",alignItems:"center",gap:11,padding:"8px 14px",
                       background:"var(--panel)",borderBottom:"1px solid var(--line)",flexWrap:"wrap"}}>
         <img src={LOGO} alt="دمنة" style={{height:24,opacity:.92}} />
-        <input value={proj.name} onChange={(e)=>patch({name:e.target.value})}
+        <input value={proj.name} onChange={(e)=>patch({name:e.target.value})} dir="auto"
           style={{background:"transparent",border:"1px solid transparent",borderRadius:6,
                   padding:"4px 7px",fontSize:13,fontWeight:600,width:160}}
           onFocus={(e)=>e.target.style.borderColor="var(--line)"}
@@ -1072,7 +1081,7 @@ function App(){
                       <CueEditor cue={c} onSave={saveCue} onCancel={()=>setEditCue(null)} size={ui.scriptSize} />
                     ):(
                       <span className="cue-text" dir={hasArabic(c.text)?"rtl":"ltr"}
-                        style={{textAlign:hasArabic(c.text)?"right":"left",
+                        style={{textAlign:"start",
                                 fontSize:c.kind==="head"?ui.scriptSize+3:ui.scriptSize,
                                 fontStyle:c.kind==="note"?"italic":"normal",
                                 color:c.kind==="note"?"var(--muted)":undefined}}>
@@ -1129,7 +1138,7 @@ function App(){
                   {gaps.map((g,i)=>(
                     <button key={i} className="btn btn-xs btn-ghost mono"
                       onClick={()=>{ seek(g[0]); setRegion({a:g[0],b:g[1]}); }}
-                      style={{marginRight:6,marginBottom:5}}>
+                      style={{marginInlineEnd:6,marginBottom:5}}>
                       {clock(g[0])} – {clock(g[1])} · {Math.round(g[1]-g[0])}s
                     </button>
                   ))}
@@ -1167,7 +1176,7 @@ function App(){
       {/* ---------- transport ---------- */}
       <footer style={{flex:"none",background:"var(--panel)",borderTop:"1px solid var(--line)"}}>
         <div className="grip-h" onMouseDown={startWaveResize} title="Drag to resize the waveform" />
-        <div ref={waveWrap} onMouseDown={waveDown} onWheel={waveWheel}
+        <div ref={waveWrap} dir="ltr" onMouseDown={waveDown} onWheel={waveWheel}
           onMouseMove={(e)=>{ const r=e.currentTarget.getBoundingClientRect(); setHoverX({x:e.clientX-r.left,t:waveT(e.clientX)}); }}
           onMouseLeave={()=>setHoverX(null)}
           style={{position:"relative",height:ui.waveH,background:"#100E0B",
@@ -1534,7 +1543,7 @@ function AnnotatableLines({ lines, marker, open, onAddAnnotation, onDelAnnotatio
       {lines.map((c)=>(
         <div key={c.id} data-cueid={c.id} dir={hasArabic(c.text)?"rtl":"ltr"}
           style={{fontSize:15,color:"var(--muted)",lineHeight:1.95,
-                  textAlign:hasArabic(c.text)?"right":"left"}}>
+                  textAlign:"start"}}>
           <AnnotatedText text={c.text} anns={anns.filter((a)=>a.cueId===c.id)} />
         </div>
       ))}
@@ -1734,7 +1743,8 @@ function Calendar({ projects,current,onOpenProject,onPatch }){
   };
 
   return (
-    <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
+    // the month grid stays left-to-right (English weekday names, time runs forward like the waveform)
+    <div dir="ltr" style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
       <div className="pane-head">
         <button className="btn btn-sm btn-ghost" onClick={()=>setCursor(new Date(y,mo-1,1))}>←</button>
         <h2 style={{minWidth:150}}>{cursor.toLocaleString("en",{month:"long",year:"numeric"})}</h2>
@@ -1798,7 +1808,7 @@ function CueEditor({ cue,onSave,onCancel,size }){
         onChange={(e)=>setText(e.target.value)}
         onKeyDown={(e)=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();onSave(cue.id,text,parseTime(start));}
                           if(e.key==="Escape") onCancel(); }}
-        style={{fontSize:size,minHeight:60,textAlign:hasArabic(text)?"right":"left"}} />
+        style={{fontSize:size,minHeight:60,textAlign:"start"}} />
       <span style={{display:"flex",gap:7,marginTop:6,alignItems:"center"}}>
         <input className="field mono" value={start} onChange={(e)=>setStart(e.target.value)}
           placeholder="0:00" style={{width:76,padding:"3px 7px",fontSize:12}} />
@@ -1919,7 +1929,7 @@ function TagModal({ tags,counts,onChange,onClose }){
                         borderRadius:6,background:"transparent",cursor:"pointer"}} />
               <input className="field" value={t.label} onChange={(e)=>set(i,{label:e.target.value})}
                 style={{flex:1,padding:"5px 9px",fontSize:13}} />
-              <span className="mono" style={{color:"var(--dim)",fontSize:11,width:24,textAlign:"right"}}>{counts[t.id]||0}</span>
+              <span className="mono" style={{color:"var(--dim)",fontSize:11,width:24,textAlign:"end"}}>{counts[t.id]||0}</span>
               <button className="btn btn-xs btn-ghost" disabled={i===0}
                 onClick={()=>setList((l)=>{const n=l.slice();const x=n[i-1];n[i-1]=n[i];n[i]=x;return n;})}>↑</button>
               <button className="btn btn-xs btn-ghost" disabled={i===list.length-1}
