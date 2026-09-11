@@ -1371,7 +1371,7 @@ function Dropdown({ value, options, onChange, className, style, title }){
     <button ref={btnRef} type="button" className={"dd-btn "+(className||"")} style={style} title={title}
       aria-haspopup="listbox" aria-expanded={open}
       onClick={()=>{ setHot(curIdx); setOpen((v)=>!v); }} onKeyDown={onKey}>
-      {swatch(cur)}<span>{cur?cur.label:""}</span><span className="dd-caret">▾</span>
+      {swatch(cur)}<span dir="auto">{cur?cur.label:""}</span><span className="dd-caret">▾</span>
     </button>
     {open&&ReactDOM.createPortal(
       <div ref={popRef} className="pop fade" role="listbox" style={{top:-9999,left:-9999}}>
@@ -1379,7 +1379,7 @@ function Dropdown({ value, options, onChange, className, style, title }){
           <button key={String(o.value)} type="button" role="option" aria-selected={o===cur} tabIndex={-1}
             className={"pop-item"+(o===cur?" on":"")+(i===hot?" hot":"")}
             onMouseEnter={()=>setHot(i)} onClick={()=>pick(o)}>
-            {swatch(o)}{o.label}
+            {swatch(o)}<span dir="auto">{o.label}</span>
           </button>
         ))}
       </div>, document.body)}
