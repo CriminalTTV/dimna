@@ -74,6 +74,20 @@
   .ann-edit .ann { cursor:pointer; }
   .line-x { color:var(--dim); flex:none; opacity:.55; }
   .line-x:hover { opacity:1; color:var(--bad) !important; }
+
+  /* comments — the brief is the first, flagged comment (item 3b) */
+  .comment { background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:6px 10px;
+             font-size:13px; line-height:1.7; margin-top:6px; }
+  .comment.brief { background:linear-gradient(rgba(201,168,124,.08),rgba(201,168,124,.08)),var(--panel2);
+                   border-color:rgba(201,168,124,.38); font-size:15px; line-height:1.8; padding:8px 12px; margin-top:8px; }
+  .brief-label { font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin-bottom:2px; }
+  .comment-at { font-size:10px; color:var(--dim); margin-top:1px; }
+  .c-act { color:var(--dim); opacity:0; padding:1px 5px; }
+  .comment:hover .c-act, .c-act:focus-visible { opacity:1; }
+  @media (hover:none) { .c-act { opacity:.7; } }
+  .no-brief { margin-top:8px; font-size:12px; color:var(--dim); display:flex; align-items:center; gap:8px;
+              border:1px dashed var(--line2); border-radius:7px; padding:4px 6px 4px 10px; }
+  .add-comment { color:var(--muted); margin-top:6px; }
   .ann-sel { outline:2px solid var(--text); outline-offset:1px; }
   .ann-tip { position:fixed; z-index:320; transform:translate(-50%,calc(-100% - 6px)); max-width:300px;
              background:var(--raise); border:1px solid var(--line2); border-radius:6px; padding:5px 9px;
@@ -746,11 +760,22 @@ function App(){
   const updMarker=(id,p)=>patch({ markers:markers.map((m)=>m.id===id?Object.assign({},m,p):m) });
   const delMarker=(id)=>commit({ markers:markers.filter((m)=>m.id!==id) });
 
-  const addComment=(m,text)=>{
+  // comments: the one flagged brief is the main instruction and always sits first (item 3b)
+  const withComments=(mid,fn)=>markers.map((x)=>x.id===mid?Object.assign({},x,{comments:fn(x.comments||[])}):x);
+  const addComment=(m,text,brief)=>{
     if(!text.trim()) return;
-    updMarker(m.id,{ comments:(m.comments||[]).concat({id:uid(),text:text.trim(),at:Date.now()}) });
+    const c={ id:uid(), text:text.trim(), at:Date.now() }; if(brief) c.brief=true;
+    commit({ markers:withComments(m.id,(l)=>brief?[c].concat(l):l.concat(c)) });
   };
-  const delComment=(m,cid)=>updMarker(m.id,{ comments:(m.comments||[]).filter((c)=>c.id!==cid) });
+  const editComment=(m,cid,text)=>{
+    if(!text.trim()) return;
+    patch({ markers:withComments(m.id,(l)=>l.map((c)=>c.id===cid?Object.assign({},c,{ text:text.trim(), edited:Date.now() }):c)) });
+  };
+  const delComment=(m,cid)=>{
+    const was=(m.comments||[]).find((c)=>c.id===cid);
+    commit({ markers:withComments(m.id,(l)=>l.filter((c)=>c.id!==cid)) });
+    say((was&&was.brief?"Brief":"Comment")+" deleted · ⌘Z to undo");
+  };
   // adding / removing a highlight is undoable; editing its note, colour or style is not
   const withAnns=(mid,fn)=>markers.map((x)=>x.id===mid?Object.assign({},x,{annotations:fn(x.annotations||[])}):x);
   const addAnnotation=(m,a)=>commit({ markers:withAnns(m.id,(l)=>l.concat(Object.assign({id:uid()},a))) });
@@ -1240,7 +1265,7 @@ function App(){
                   onToggle={()=>setExpanded((g)=>Object.assign({},g,{[gr.key]:!g[gr.key]}))}
                   onSeek={seek} onSelectLines={(ids)=>setSel(ids)} flash={flash}
                   onUpdate={updMarker} onDelete={delMarker}
-                  onAddComment={addComment} onDelComment={delComment}
+                  onAddComment={addComment} onEditComment={editComment} onDelComment={delComment}
                   onAddAnnotation={addAnnotation} onUpdAnnotation={updAnnotation} onDelAnnotation={delAnnotation}
                   annotId={annotId} setAnnotId={setAnnotId} sel={sel} onRelink={relink} />
               ))}
@@ -1538,7 +1563,7 @@ function AnnotatedText({ text, anns, selectedId, titles }) {
 /* =============== group card =============== */
 function GroupCard(props){
   const { gr,gi,tags,tagOf,fps,cues,cueIndex,expanded,onToggle,onSeek,onSelectLines,flash,
-          onUpdate,onDelete,onAddComment,onDelComment,onAddAnnotation,onUpdAnnotation,onDelAnnotation,
+          onUpdate,onDelete,onAddComment,onEditComment,onDelComment,onAddAnnotation,onUpdAnnotation,onDelAnnotation,
           annotId,setAnnotId,sel,onRelink } = props;
   const multi=gr.items.length>1;
   const editing=gr.items.find((m)=>m.id===annotId)||null;   // tag in annotation mode, if it's in this folder
@@ -1603,7 +1628,7 @@ function GroupCard(props){
       {open&&gr.items.map((m)=>(
         <MarkerBlock key={m.id} m={m} tags={tags} tagOf={tagOf} flash={flash===m.id}
           onUpdate={onUpdate} onDelete={onDelete}
-          onAddComment={onAddComment} onDelComment={onDelComment}
+          onAddComment={onAddComment} onEditComment={onEditComment} onDelComment={onDelComment}
           canAnnotate={lines.length>0} annotating={m.id===annotId}
           onAnnotate={()=>setAnnotId(m.id===annotId?null:m.id)}
           addable={addableFor(m)} onAddLines={()=>onRelink(m,(m.cueIds||[]).concat(addableFor(m)))} />
@@ -1765,15 +1790,59 @@ function AnnotatableLines({ lines, anns, editable, size, onAdd, onUpdate, onDele
   );
 }
 
-/* =============== marker block =============== */
-function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onDelComment,canAnnotate,annotating,onAnnotate,addable,onAddLines }){
-  const t=tagOf(m.tagId);
-  const [editingNote,setEditingNote]=useState(false);
-  const [draft,setDraft]=useState(m.note||"");
-  const [newComment,setNewComment]=useState("");
-  const st=STATUS.find((s)=>s.id===(m.status||"todo"))||STATUS[0];
+/* =============== comments =============== */
+// Enter saves and closes, shift+enter is a new line, esc cancels; clicking away keeps what was typed
+function CommentComposer({ initial, brief, onSave, onCancel }){
+  const [text,setText]=useState(initial||"");
+  const done=useRef(false);
+  const save=()=>{ if(done.current) return; done.current=true; if(text.trim()) onSave(text); else onCancel(); };
+  const cancel=()=>{ done.current=true; onCancel(); };
+  return (
+    <div className="fade" style={{marginTop:7}}>
+      <textarea autoFocus className="field" rows={brief?3:2} value={text} dir="auto"
+        onChange={(e)=>setText(e.target.value)}
+        onKeyDown={(e)=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); save(); }
+                          else if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); cancel(); } }}
+        onBlur={save}
+        placeholder={brief?"The main instruction for this shot…":"Add a comment…"}
+        style={{fontSize:brief?15:13,lineHeight:1.7,padding:"7px 10px",resize:"vertical"}} />
+      <div style={{display:"flex",gap:6,marginTop:5,alignItems:"center",fontSize:11,color:"var(--dim)",flexWrap:"wrap"}}>
+        <button className="btn btn-xs btn-primary" onMouseDown={(e)=>e.preventDefault()} onClick={save}>{brief?"Save brief":"Save"}</button>
+        <button className="btn btn-xs btn-ghost" onMouseDown={(e)=>e.preventDefault()} onClick={cancel}>Cancel</button>
+        <span>enter saves · shift+enter new line · esc cancels</span>
+      </div>
+    </div>
+  );
+}
 
-  const saveNote=()=>{ onUpdate(m.id,{note:draft}); setEditingNote(false); };
+function CommentItem({ c, brief, onSave, onDelete }){
+  const [editing,setEditing]=useState(false);
+  if(editing) return <CommentComposer initial={c.text} brief={brief}
+    onSave={(txt)=>{ onSave(txt); setEditing(false); }} onCancel={()=>setEditing(false)} />;
+  return (
+    <div className={"comment"+(brief?" brief":"")} onDoubleClick={()=>setEditing(true)} title="Double-click to edit">
+      {brief&&<div className="brief-label">Brief</div>}
+      <div style={{display:"flex",gap:6,alignItems:"flex-start"}}>
+        <span dir="auto" style={{flex:1,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{c.text}</span>
+        <button className="btn btn-xs btn-ghost c-act" title="Edit" onClick={()=>setEditing(true)}>✎</button>
+        <button className="btn btn-xs btn-ghost c-act" title={brief?"Delete brief":"Delete comment"} onClick={onDelete}>✕</button>
+      </div>
+      {!brief&&c.at&&<div className="comment-at">{ago(c.at)}{c.edited?" · edited":""}</div>}
+    </div>
+  );
+}
+
+/* =============== marker block =============== */
+function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onEditComment,onDelComment,canAnnotate,annotating,onAnnotate,addable,onAddLines,showAll }){
+  const t=tagOf(m.tagId);
+  const [composer,setComposer]=useState(null);   // null | "brief" | "comment"
+  const [unfold,setUnfold]=useState(false);
+  const st=STATUS.find((s)=>s.id===(m.status||"todo"))||STATUS[0];
+  const comments=m.comments||[];
+  const brief=comments.find((c)=>c.brief)||null;
+  const rest=comments.filter((c)=>!c.brief);
+  const FOLD=3;   // outside the Expanded view, long threads show their latest few comments
+  const visible=showAll||unfold||rest.length<=FOLD?rest:rest.slice(-FOLD);
 
   return (
     <div className={flash?"pop":""} style={{marginTop:9,paddingTop:9,borderTop:"1px solid var(--line)",
@@ -1804,45 +1873,35 @@ function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onDelCo
             {annotating?"Done":"⤢ Annotate"}
           </button>
         )}
-        <button className="btn btn-xs btn-ghost" style={{color:"var(--muted)"}}
-          onClick={()=>{setDraft(m.note||"");setEditingNote((v)=>!v);}}>
-          {editingNote?"cancel":m.note?"edit":"brief"}
-        </button>
-        <button className="btn btn-xs btn-ghost" style={{color:"var(--dim)"}}
+        <button className="btn btn-xs btn-ghost" style={{color:"var(--dim)"}} title="Delete this tag"
           onClick={()=>onDelete(m.id)}>✕</button>
       </div>
 
-      {editingNote?(
-        <textarea autoFocus className="field fade" value={draft}
-          onChange={(e)=>setDraft(e.target.value)}
-          onKeyDown={(e)=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();saveNote();}
-                            if(e.key==="Escape") setEditingNote(false); }}
-          onBlur={saveNote}
-          dir={hasArabic(draft)?"rtl":"ltr"}
-          placeholder="What this shot needs — enter saves, shift+enter for a new line"
-          style={{marginTop:8,minHeight:68}} />
-      ):m.note?(
-        <div dir={hasArabic(m.note)?"rtl":"ltr"} onDoubleClick={()=>{setDraft(m.note);setEditingNote(true);}}
-          style={{marginTop:6,fontSize:14,lineHeight:1.8,cursor:"text"}}>{m.note}</div>
-      ):null}
-
-      {(m.comments||[]).length>0&&(
-        <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:5}}>
-          {(m.comments||[]).map((c)=>(
-            <div key={c.id} style={{display:"flex",gap:7,alignItems:"flex-start",
-              background:"var(--bg)",border:"1px solid var(--line)",borderRadius:6,padding:"6px 9px"}}>
-              <span dir={hasArabic(c.text)?"rtl":"ltr"} style={{flex:1,fontSize:13,lineHeight:1.7}}>{c.text}</span>
-              <button className="btn btn-xs btn-ghost" style={{color:"var(--dim)"}}
-                onClick={()=>onDelComment(m,c.id)}>✕</button>
-            </div>
-          ))}
+      {brief?(
+        <CommentItem c={brief} brief onSave={(txt)=>onEditComment(m,brief.id,txt)} onDelete={()=>onDelComment(m,brief.id)} />
+      ):composer==="brief"?(
+        <CommentComposer brief onSave={(txt)=>{ onAddComment(m,txt,true); setComposer(null); }} onCancel={()=>setComposer(null)} />
+      ):(
+        <div className="no-brief">
+          <span>No brief</span>
+          <button className="btn btn-xs btn-ghost" style={{color:"var(--accent)"}} onClick={()=>setComposer("brief")}>＋ Add brief</button>
         </div>
       )}
 
-      <input className="field" value={newComment} onChange={(e)=>setNewComment(e.target.value)}
-        onKeyDown={(e)=>{ if(e.key==="Enter"){ e.preventDefault(); onAddComment(m,newComment); setNewComment(""); } }}
-        placeholder="Add a comment — enter to post" dir="auto"
-        style={{marginTop:7,padding:"5px 9px",fontSize:12}} />
+      {rest.length>visible.length&&(
+        <button className="btn btn-xs btn-ghost" style={{color:"var(--muted)",marginTop:6}} onClick={()=>setUnfold(true)}>
+          Show {rest.length-visible.length} earlier comment{rest.length-visible.length>1?"s":""}
+        </button>
+      )}
+      {visible.map((c)=>(
+        <CommentItem key={c.id} c={c} onSave={(txt)=>onEditComment(m,c.id,txt)} onDelete={()=>onDelComment(m,c.id)} />
+      ))}
+
+      {composer==="comment"?(
+        <CommentComposer onSave={(txt)=>{ onAddComment(m,txt,false); setComposer(null); }} onCancel={()=>setComposer(null)} />
+      ):(
+        <button className="btn btn-xs btn-ghost add-comment" onClick={()=>setComposer("comment")}>＋ Add comment</button>
+      )}
     </div>
   );
 }
