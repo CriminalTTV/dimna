@@ -2,14 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#16140F" />
 <title>دمنة — Script Marker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<!-- pinned versions: a floating CDN tag can change under a live site -->
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.0/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
@@ -116,6 +118,37 @@
   .tile { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 10px; cursor:pointer; min-width:0;
           transition:border-color .15s ease, background .15s ease; }
   .tile:hover, .tile:focus-visible { border-color:var(--line2); background:#221F19; }
+  /* header, menus, progress (extras) */
+  .hdr { flex:none; display:flex; align-items:center; gap:10px; padding:8px 14px; background:var(--panel);
+         border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .proj-name { background:transparent; border:1px solid transparent; border-radius:6px; padding:4px 7px;
+               font-size:13px; font-weight:600; width:170px; min-width:0; }
+  .proj-name:hover { border-color:var(--line); }
+  .proj-name:focus { border-color:var(--line2); outline:none; background:var(--bg); }
+  .progress { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--dim); }
+  .progress-bar { width:84px; height:5px; border-radius:3px; background:var(--line); overflow:hidden; }
+  .progress-bar > div { height:100%; background:var(--ok); border-radius:3px; transition:width .3s ease; }
+  .btn-group { display:inline-flex; gap:2px; }
+  .pop-sep { height:1px; background:var(--line); margin:4px 2px; }
+  .pop-head { font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); padding:6px 10px 2px; }
+  .pop-hint { font-size:11px; color:var(--dim); margin-inline-start:16px; }
+  .pop-item:disabled { opacity:.4; cursor:default; background:transparent; }
+  .filters { display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:7px 14px; border-bottom:1px solid var(--line); flex:none; }
+  .fchip { display:inline-flex; align-items:center; gap:5px; background:transparent; border:1px solid var(--line);
+           border-radius:999px; padding:2px 9px; font-size:11px; color:var(--muted); }
+  .fchip:hover { border-color:var(--line2); color:var(--text); }
+  .fcount { color:var(--dim); font-size:10px; }
+  .fsep { width:1px; height:16px; background:var(--line); margin:0 3px; }
+  .gcard.live { border-color:rgba(214,163,84,.6); box-shadow:0 0 0 1px rgba(214,163,84,.22); }
+  .live-dot { color:var(--warn); font-size:10px; animation:blink 1.2s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity:.25; } }
+  .ping { animation:pop .6s ease-out; }
+  .onboard { max-width:470px; color:var(--muted); line-height:1.8; background:var(--panel); border:1px solid var(--line);
+             border-radius:10px; padding:16px 18px; }
+  .onboard-title { font-size:15px; font-weight:600; color:var(--text); margin-bottom:4px; }
+  .onboard ol { padding-inline-start:20px; margin:6px 0 10px; }
+  .onboard li { margin-bottom:8px; }
+  .onboard li .btn { margin-inline-start:6px; }
   .rstats { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin:12px 0 4px; }
   .rstat { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 10px; }
   .tile-text { margin-top:6px; font-size:13px; color:var(--muted); line-height:1.7; display:-webkit-box;
@@ -590,7 +623,8 @@ function App(){
   const [gapsOpen,setGapsOpen]=useState(false);
   const [helpOpen,setHelpOpen]=useState(false);
   const [dropping,setDropping]=useState(false);
-  const [toast,setToast]=useState("");
+  const [toast,setToast]=useState(null);   // { id, text, undo }
+  const toastSeq=useRef(0), stopAt=useRef(null);
   const [hoverX,setHoverX]=useState(null);
   const [cloudCfg,setCloudCfg]=useState(()=>readCloudCfg());
   const [sb,setSb]=useState(null);
@@ -605,7 +639,9 @@ function App(){
   const ui = proj.ui || { scriptSize:16, waveH:96, splitPct:58 };
   const shotMode = ui.shotMode || "comfortable";   // compact | comfortable | expanded, per project (item 10b)
   const tagOf=useCallback((id)=>tags.find((t)=>t.id===id)||tags[0]||DEFAULT_TAGS[0],[tags]);
-  const say=(m)=>{ setToast(m); setTimeout(()=>setToast((t)=>t===m?"":t),2400); };
+  // withUndo: the toast carries an Undo button and stays a little longer
+  const say=(m,withUndo)=>{ const id=++toastSeq.current; setToast({ id, text:m, undo:!!withUndo });
+    setTimeout(()=>setToast((t)=>t&&t.id===id?null:t),withUndo?5000:2400); };
 
   const setProj=(fn)=>setProjRaw((x)=>Object.assign({}, typeof fn==="function"?fn(x):fn, {updated:Date.now()}));
   const patch=(p)=>setProjRaw((x)=>Object.assign({},x,p,{updated:Date.now()}));
@@ -797,7 +833,8 @@ function App(){
     if(mayUpload!==false && autoUpload && sb && user) uploadAudio(f,proj);
   };
   const openAudio=(e)=>{ const f=e.target.files&&e.target.files[0]; if(f) loadAudioFile(f); e.target.value=""; };
-  const toggle=useCallback(()=>{ const a=audioRef.current; if(!a||!audioUrl) return; if(a.paused)a.play(); else a.pause(); },[audioUrl]);
+  const toggle=useCallback(()=>{ const a=audioRef.current; if(!a||!audioUrl) return;
+    if(a.paused){ const p=a.play(); if(p&&p.catch) p.catch(()=>{}); } else a.pause(); },[audioUrl]);
   const seek=useCallback((t)=>{ const a=audioRef.current; if(!a||!isFinite(t)) return;
     a.currentTime=clamp(t,0,duration||0); setTime(a.currentTime); },[duration]);
   const nudge=useCallback((d)=>seek((audioRef.current?audioRef.current.currentTime:0)+d),[seek]);
@@ -825,7 +862,7 @@ function App(){
     commit({ cues:cues.filter((c)=>sel.indexOf(c.id)===-1),
              markers:markers.map((m)=>Object.assign({},m,{cueIds:(m.cueIds||[]).filter((id)=>sel.indexOf(id)===-1)}))
                             .filter((m)=>(m.cueIds&&m.cueIds.length)||m.start!==undefined) });
-    say(sel.length+" line"+(sel.length>1?"s":"")+" deleted · ⌘Z to undo");
+    say(sel.length+" line"+(sel.length>1?"s":"")+" deleted",true);
     setSel([]);
   };
 
@@ -855,7 +892,26 @@ function App(){
   },[sel,activeIdx,cues,markers,time,region,offset]);
 
   const updMarker=(id,p)=>patch({ markers:markers.map((m)=>m.id===id?Object.assign({},m,p):m) });
-  const delMarker=(id)=>commit({ markers:markers.filter((m)=>m.id!==id) });
+  const delMarker=(id)=>{ commit({ markers:markers.filter((m)=>m.id!==id) }); if(annotId===id) setAnnotId(null); say("Tag deleted",true); };
+
+  // ▶ on a shot plays just that span and stops at its end; a manual pause cancels the stop
+  const playRange=(a,b)=>{ const au=audioRef.current; if(!au) return; seek(a); stopAt.current=b;
+    const p=au.play(); if(p&&p.catch) p.catch(()=>{ stopAt.current=null; }); };
+  const jumpShot=(dir)=>{
+    const starts=sorted.map((m)=>range(m).start).sort((a,b)=>a-b);
+    const now=audioRef.current?audioRef.current.currentTime:time;
+    if(dir>0){ const n=starts.find((s)=>s>now+0.05); if(n!=null) seek(n); }
+    else { const p=starts.slice().reverse().find((s)=>s<now-0.6); seek(p!=null?p:0); }
+  };
+  // a tag chip in the script scrolls the shot list to its block
+  const jumpToGroup=(key)=>{
+    setExpanded((g)=>Object.assign({},g,{[key]:true}));
+    setTimeout(()=>{
+      const el=document.querySelector('[data-gkey="'+CSS.escape(key)+'"]'); if(!el) return;
+      el.scrollIntoView({ block:"nearest", behavior:"smooth" });
+      el.classList.remove("ping"); void el.offsetWidth; el.classList.add("ping");
+    },60);
+  };
 
   // comments: the one flagged brief is the main instruction and always sits first (item 3b)
   const withComments=(mid,fn)=>markers.map((x)=>x.id===mid?Object.assign({},x,{comments:fn(x.comments||[])}):x);
@@ -871,13 +927,13 @@ function App(){
   const delComment=(m,cid)=>{
     const was=(m.comments||[]).find((c)=>c.id===cid);
     commit({ markers:withComments(m.id,(l)=>l.filter((c)=>c.id!==cid)) });
-    say((was&&was.brief?"Brief":"Comment")+" deleted · ⌘Z to undo");
+    say((was&&was.brief?"Brief":"Comment")+" deleted",true);
   };
   // adding / removing a highlight is undoable; editing its note, colour or style is not
   const withAnns=(mid,fn)=>markers.map((x)=>x.id===mid?Object.assign({},x,{annotations:fn(x.annotations||[])}):x);
   const addAnnotation=(m,a)=>commit({ markers:withAnns(m.id,(l)=>l.concat(Object.assign({id:uid()},a))) });
   const updAnnotation=(m,aid,p)=>patch({ markers:withAnns(m.id,(l)=>l.map((a)=>a.id===aid?Object.assign({},a,p):a)) });
-  const delAnnotation=(m,aid)=>commit({ markers:withAnns(m.id,(l)=>l.filter((a)=>a.id!==aid)) });
+  const delAnnotation=(m,aid)=>{ commit({ markers:withAnns(m.id,(l)=>l.filter((a)=>a.id!==aid)) }); say("Highlight deleted",true); };
 
   // item 7: detach / attach script lines on one tag. Line tags just follow their lines; region tags
   // keep their dragged span, trimmed when an edge line goes and stretched to cover lines added.
@@ -924,6 +980,8 @@ function App(){
       if(e.key==="ArrowUp"){ e.preventDefault(); jumpCue(-1); return; }
       if(e.key==="ArrowDown"){ e.preventDefault(); jumpCue(1); return; }
       if(e.key==="f"||e.key==="F"){ setFollow((v)=>!v); return; }
+      if(e.key===","||e.key==="."){ e.preventDefault(); jumpShot(e.key==="."?1:-1); return; }
+      if(e.key==="?"){ setHelpOpen(true); return; }
       if(e.key==="+"||e.key==="="){ setZoom((z)=>clamp(z*1.6,1,120)); return; }
       if(e.key==="-"||e.key==="_"){ setZoom((z)=>clamp(z/1.6,1,120)); return; }
       const n=parseInt(e.key,10);
@@ -1100,8 +1158,8 @@ function App(){
     const { parsed, plan }=reanchor;
     commit({ cues:parsed, markers:wipe?[]:plan.markers });
     setReanchor(null); setSel([]); setAnnotId(null); setExpanded({});
-    say(wipe?"Script replaced · all tags deleted · ⌘Z to undo"
-            :"Script replaced · "+plan.markers.length+" tag"+(plan.markers.length===1?"":"s")+" kept · ⌘Z to undo");
+    say(wipe?"Script replaced · all tags deleted"
+            :"Script replaced · "+plan.markers.length+" tag"+(plan.markers.length===1?"":"s")+" kept",true);
   };
   const readTxt=(f,then)=>{ const r=new FileReader(); r.onload=()=>then(String(r.result)); r.readAsText(f,"utf-8"); };
 
@@ -1213,33 +1271,51 @@ function App(){
 
   const selCount=sel.length;
   const hasRegion=region&&Math.abs(region.b-region.a)>0.05;
+  const importItems=[
+    { label:"Script file (.txt / .srt / .vtt)", onClick:()=>txtRef.current&&txtRef.current.click() },
+    { label:"Paste a script…", onClick:()=>{ setImportText(""); setImportOpen(true); } },
+    { label:"Tag list (.txt)", onClick:()=>tagTxtRef.current&&tagTxtRef.current.click() },
+    { sep:true },
+    { label:"Project backup (.json)", onClick:()=>jsonRef.current&&jsonRef.current.click() },
+  ];
+  const exportItems=[
+    { label:"Brief for animators", hint:".md", onClick:exportBrief, disabled:!markers.length },
+    { label:"Markers for Premiere / Resolve", hint:".csv", onClick:exportCsv, disabled:!markers.length },
+    { label:"Tag list", hint:".txt", onClick:exportTagList, disabled:!markers.length },
+    { sep:true },
+    { label:"Project backup", hint:".json", onClick:exportProject },
+  ];
+  const donePct=markers.length?Math.round(statusCounts.done/markers.length*100):0;
 
   /* ================= render ================= */
   return (
     <div dir={uiDir} style={{height:"100%",display:"flex",flexDirection:"column"}}>
 
-      <header style={{flex:"none",display:"flex",alignItems:"center",gap:11,padding:"8px 14px",
-                      background:"var(--panel)",borderBottom:"1px solid var(--line)",flexWrap:"wrap"}}>
+      <header className="hdr">
         <img src={LOGO} alt="دمنة" style={{height:24,opacity:.92}} />
-        <input value={proj.name} onChange={(e)=>patch({name:e.target.value})} dir="auto"
-          style={{background:"transparent",border:"1px solid transparent",borderRadius:6,
-                  padding:"4px 7px",fontSize:13,fontWeight:600,width:160}}
-          onFocus={(e)=>e.target.style.borderColor="var(--line)"}
-          onBlur={(e)=>e.target.style.borderColor="transparent"} />
+        <input className="proj-name" value={proj.name} onChange={(e)=>patch({name:e.target.value})} dir="auto" title="Project name" />
         <div style={{display:"flex",gap:3}}>
           {[["script","Script"],["board","Board"],["calendar","Calendar"]].map(([k,l])=>(
             <button key={k} className={"tab"+(view===k?" on":"")} onClick={()=>setView(k)}>{l}</button>
           ))}
         </div>
         <div style={{flex:1}} />
-        <span className="mono" style={{color:"var(--dim)",fontSize:11}}>
-          {statusCounts.done}/{markers.length} done
-        </span>
+        {markers.length>0&&(
+          <div className="progress" title={statusCounts.done+" of "+markers.length+" shots done"}>
+            <div className="progress-bar"><div style={{width:donePct+"%"}} /></div>
+            <span className="mono">{statusCounts.done}/{markers.length} done</span>
+          </div>
+        )}
+        <div className="btn-group">
+          <button className="btn btn-sm btn-ghost" onClick={undo} disabled={!history.current.length} title="Undo (⌘Z)">↶</button>
+          <button className="btn btn-sm btn-ghost" onClick={redo} disabled={!future.current.length} title="Redo (⌘⇧Z)">↷</button>
+        </div>
         <button className="btn btn-sm" onClick={()=>setProjOpen(true)}>Projects</button>
         <button className="btn btn-sm" onClick={()=>setTagsOpen(true)}>Tags</button>
-        <button className="btn btn-sm" onClick={()=>txtRef.current&&txtRef.current.click()}>Import .txt</button>
-        <button className="btn btn-sm" onClick={()=>tagTxtRef.current&&tagTxtRef.current.click()}>Import tags</button>
-        <button className="btn btn-sm" onClick={exportBrief} disabled={!markers.length}>Brief</button>
+        <MenuButton className="btn btn-sm" title="Import a script, tag list or project"
+          label={<>Import <span className="dd-caret">▾</span></>} items={importItems} />
+        <MenuButton className="btn btn-sm" title="Export for animators, editors or backup"
+          label={<>Export <span className="dd-caret">▾</span></>} items={exportItems} />
         <button className="btn btn-sm" onClick={()=>setCloudOpen(true)}
           title={user?"Signed in as "+user.email:"Set up cloud sync"}
           style={{borderColor:user?"var(--ok)":"var(--line)",color:user?"var(--ok)":"var(--muted)"}}>
@@ -1260,6 +1336,7 @@ function App(){
               <h2>Script</h2>
               <span style={{color:"var(--dim)",fontSize:12}}>
                 {cues.length?timedCount+" timed":"empty"}{selCount?" · "+selCount+" selected":""}
+                {query.trim()?" · "+visibleCues.length+" found":""}
               </span>
               {selCount>0&&(
                 <>
@@ -1279,10 +1356,16 @@ function App(){
               onScroll={()=>{ if(Date.now()-autoScroll.current>900&&follow&&playing) setFollow(false); }}
               style={{flex:1}}>
               {cues.length===0?(
-                <div style={{color:"var(--dim)",lineHeight:1.9,maxWidth:440}}>
-                  <p>No script yet. Drop a .txt anywhere on the page, or:</p>
-                  <button className="btn btn-primary" onClick={()=>{setImportText("");setImportOpen(true);}}>Paste a script</button>
-                  <p style={{marginTop:16,fontSize:12}}>Press <b>?</b> in the header for the file formats.</p>
+                <div className="onboard enter">
+                  <div className="onboard-title">Start a project</div>
+                  <ol>
+                    <li><b>Load the narration</b> — audio or video, any length.
+                      <button className="btn btn-xs" onClick={()=>fileRef.current&&fileRef.current.click()}>{audioUrl?"Change audio":"Load audio"}</button></li>
+                    <li><b>Add the script</b> — paste it, or drop a .txt / .srt anywhere on the page.
+                      <button className="btn btn-xs btn-primary" onClick={()=>{setImportText("");setImportOpen(true);}}>Paste a script</button></li>
+                    <li><b>Tag the shots</b> — select lines or drag across the waveform, then press 1–9.</li>
+                  </ol>
+                  <div style={{fontSize:12,color:"var(--dim)"}}>Press <b>?</b> for file formats and every shortcut.</div>
                 </div>
               ):visibleCues.map((c)=>{
                 const i=cueIndex[c.id];
@@ -1308,9 +1391,8 @@ function App(){
                         {mk.length>0&&(
                           <span style={{display:"inline-flex",gap:4,marginInlineStart:9,verticalAlign:"middle"}}>
                             {mk.map((m)=>{ const t=tagOf(m.tagId);
-                              return <span key={m.id} className="chip"
-                                onClick={(e)=>{e.stopPropagation();
-                                  setExpanded((g)=>Object.assign({},g,{[(m.cueIds||[]).slice().sort().join("|")||"free:"+m.id]:true}));}}
+                              return <span key={m.id} className="chip" title="Show this tag in the shot list"
+                                onClick={(e)=>{e.stopPropagation(); jumpToGroup((m.cueIds||[]).slice().sort().join("|")||"free:"+m.id);}}
                                 style={{background:t.color+"22",color:t.color,cursor:"pointer",
                                         opacity:(m.status||"todo")==="done"?.55:1}}>
                                 <span className="dot" style={{background:t.color}} />{t.label}
@@ -1343,17 +1425,28 @@ function App(){
                   {gaps.length} gap{gaps.length>1?"s":""}
                 </button>
               )}
-              {STATUS.map((s)=>statusCounts[s.id]>0?(
-                <button key={s.id} className="btn btn-xs btn-ghost"
-                  onClick={()=>setStatusFilter(statusFilter===s.id?null:s.id)}
-                  style={{borderColor:statusFilter===s.id?s.color:"var(--line)",
-                          color:statusFilter===s.id?s.color:"var(--muted)"}}>
-                  {s.label} {statusCounts[s.id]}
-                </button>
-              ):null)}
-              <button className="btn btn-xs btn-ghost" onClick={exportTagList} disabled={!markers.length}
-                style={{color:"var(--dim)"}}>export .txt</button>
             </div>
+            {markers.length>0&&(
+              <div className="filters">
+                {tags.filter((t)=>counts[t.id]).map((t)=>(
+                  <button key={t.id} className="fchip" onClick={()=>setFilter(filter===t.id?null:t.id)}
+                    style={filter===t.id?{borderColor:t.color,color:t.color,background:t.color+"1A"}:undefined}>
+                    <span className="dot" style={{background:t.color}} />{t.label}<span className="mono fcount">{counts[t.id]}</span>
+                  </button>
+                ))}
+                <span className="fsep" />
+                {STATUS.map((s)=>statusCounts[s.id]>0?(
+                  <button key={s.id} className="fchip" onClick={()=>setStatusFilter(statusFilter===s.id?null:s.id)}
+                    style={statusFilter===s.id?{borderColor:s.color,color:s.color,background:s.color+"1A"}:undefined}>
+                    <span className="dot" style={{background:s.color,borderRadius:"50%"}} />{s.label}<span className="mono fcount">{statusCounts[s.id]}</span>
+                  </button>
+                ):null)}
+                {(filter||statusFilter)&&(
+                  <button className="btn btn-xs btn-ghost" style={{color:"var(--muted)"}}
+                    onClick={()=>{ setFilter(null); setStatusFilter(null); }}>Clear</button>
+                )}
+              </div>
+            )}
             <div className="pane shots" style={{flex:1}}>
               {gapsOpen&&(
                 <div className="enter" style={{background:"var(--panel)",border:"1px solid var(--line)",
@@ -1370,8 +1463,12 @@ function App(){
               )}
               {groups.length===0?(
                 <div style={{color:"var(--dim)",lineHeight:1.9,maxWidth:400}}>
-                  <p>Nothing tagged yet.</p>
-                  <p>Select lines and press a number key, or drag a region on the waveform and tag that.</p>
+                  {markers.length?(
+                    <p>No tags match the filter. <button className="btn btn-xs" onClick={()=>{ setFilter(null); setStatusFilter(null); }}>Show all</button></p>
+                  ):(<>
+                    <p>Nothing tagged yet.</p>
+                    <p>Select lines and press a number key, or drag a region on the waveform and tag that.</p>
+                  </>)}
                 </div>
               ):(
                 <div className={shotMode==="compact"?"shot-grid":""}>
@@ -1380,6 +1477,8 @@ function App(){
                     return full?(
                       <GroupCard key={gr.key} gr={gr} gi={gi} tags={tags} tagOf={tagOf} fps={fps}
                         cues={cues} cueIndex={cueIndex} expanded={!!expanded[gr.key]} mode={shotMode}
+                        live={!!audioUrl&&time>=gr.start&&time<gr.end}
+                        onPlay={audioUrl?()=>playRange(gr.start,gr.end):null}
                         onToggle={()=>setExpanded((g)=>Object.assign({},g,{[gr.key]:!g[gr.key]}))}
                         onCollapse={shotMode==="compact"?()=>setExpanded((g)=>Object.assign({},g,{[gr.key]:false})):null}
                         onSeek={seek} onSelectLines={(ids)=>setSel(ids)} flash={flash}
@@ -1507,10 +1606,12 @@ function App(){
 
         {audioUrl&&(
           <audio ref={audioRef} src={audioUrl}
-            onTimeUpdate={(e)=>setTime(e.target.currentTime)}
+            onTimeUpdate={(e)=>{ const t=e.target.currentTime; setTime(t);
+              if(stopAt.current!=null&&t>=stopAt.current){ stopAt.current=null; e.target.pause(); } }}
             onLoadedMetadata={(e)=>{ if(isFinite(e.target.duration)) setDuration(e.target.duration); e.target.playbackRate=rate; }}
             onDurationChange={(e)=>{ const d=e.target.duration; if(isFinite(d)&&d>0) setDuration(d); }}
-            onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onEnded={()=>setPlaying(false)} />
+            onPlay={()=>setPlaying(true)} onPause={()=>{ setPlaying(false); stopAt.current=null; }}
+            onEnded={()=>{ setPlaying(false); stopAt.current=null; }} />
         )}
       </footer>
 
@@ -1548,7 +1649,12 @@ function App(){
         <div style={{color:"var(--muted)",fontSize:13}}>audio · .txt / .srt script · tag list · .json project</div>
       </div></div>}
 
-      {toast&&<div className="toast enter">{toast}</div>}
+      {toast&&(
+        <div className="toast enter" key={toast.id} style={{display:"flex",alignItems:"center",gap:10}}>
+          <span>{toast.text}</span>
+          {toast.undo&&<button className="btn btn-xs" onClick={()=>{ setToast(null); undo(); }}>Undo</button>}
+        </div>
+      )}
     </div>
   );
 }
@@ -1670,6 +1776,28 @@ function DatePicker({ value, onChange, className, style, placeholder, title }){
   </>);
 }
 
+// a small menu on the shared popover: Import / Export, and the phone ☰ menu
+function MenuButton({ label, items, className, title, style }){
+  const { btnRef, popRef, open, setOpen }=usePopover(false);
+  const list=items.filter(Boolean);
+  return (<>
+    <button ref={btnRef} type="button" className={"dd-btn "+(className||"")} style={style} title={title}
+      aria-haspopup="menu" aria-expanded={open} onClick={()=>setOpen((v)=>!v)}
+      onKeyDown={(e)=>{ if(open&&e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); setOpen(false); } }}>
+      {label}
+    </button>
+    {open&&ReactDOM.createPortal(
+      <div ref={popRef} className="pop fade" role="menu" style={{top:-9999,left:-9999}}>
+        {list.map((it,i)=>it.sep?<div key={i} className="pop-sep" />:it.head?<div key={i} className="pop-head">{it.head}</div>:(
+          <button key={i} type="button" role="menuitem" className="pop-item" disabled={!!it.disabled}
+            onClick={()=>{ setOpen(false); it.onClick(); }}>
+            <span dir="auto" style={{flex:1}}>{it.label}</span>{it.hint&&<span className="pop-hint">{it.hint}</span>}
+          </button>
+        ))}
+      </div>, document.body)}
+  </>);
+}
+
 /* =============== annotated text =============== */
 // titles: native tooltips (script pane); the shot list draws its own hover notes instead
 function AnnotatedText({ text, anns, selectedId, titles }) {
@@ -1719,7 +1847,7 @@ function ShotTile({ gr, gi, tagOf, cues, cueIndex, onOpen, onSeek }){
 function GroupCard(props){
   const { gr,gi,tags,tagOf,fps,cues,cueIndex,expanded,onToggle,onSeek,onSelectLines,flash,
           onUpdate,onDelete,onAddComment,onEditComment,onDelComment,onAddAnnotation,onUpdAnnotation,onDelAnnotation,
-          annotId,setAnnotId,sel,onRelink,mode,onCollapse } = props;
+          annotId,setAnnotId,sel,onRelink,mode,onCollapse,onPlay,live } = props;
   const multi=gr.items.length>1;
   const editing=gr.items.find((m)=>m.id===annotId)||null;   // tag in annotation mode, if it's in this folder
   const open=expanded||!multi||!!editing||mode==="expanded";
@@ -1735,12 +1863,15 @@ function GroupCard(props){
   const addableFor=(m)=>(sel||[]).filter((id)=>(m.cueIds||[]).indexOf(id)<0&&cues[cueIndex[id]]&&cues[cueIndex[id]].kind==="line");
 
   return (
-    <div className={"gcard enter"+(editing?" annotating":"")} data-gkey={gr.key}
+    <div className={"gcard enter"+(editing?" annotating":"")+(live?" live":"")} data-gkey={gr.key}
       style={{borderInlineStart:"3px solid "+(multi?"var(--accent)":tagOf(gr.items[0].tagId).color),
               opacity:allDone&&!editing?.72:1}}>
       <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
         <span className="mono" style={{color:"var(--dim)",fontSize:11,minWidth:15}}>{gi+1}</span>
-        <button className="btn btn-xs btn-ghost mono" onClick={()=>onSeek(gr.start)} style={{fontSize:12}}>{span}</button>
+        <button className="btn btn-xs btn-ghost mono" onClick={()=>onSeek(gr.start)} style={{fontSize:12}} title="Jump here">{span}</button>
+        <button className="btn btn-xs btn-ghost" onClick={onPlay||undefined} disabled={!onPlay}
+          title={onPlay?"Play just this shot":"Load audio to play shots"} style={{color:"var(--accent)"}}>▶</button>
+        {live&&<span className="live-dot" title="Playing now">●</span>}
         {multi&&(
           <button className="btn btn-xs btn-ghost" onClick={onToggle} style={{color:"var(--accent)"}}>
             {open?"▾":"▸"} {gr.items.length} tags
@@ -2475,7 +2606,8 @@ function ProjectModal({ projects,current,onOpen,onNew,onDuplicate,onDelete,onExp
             );
           })}
           <p style={{color:"var(--muted)",fontSize:12,lineHeight:1.7,marginTop:14}}>
-            Projects live in this browser only. Export the .json to move one to another device.
+            Projects save in this browser automatically. Sign in to sync them across devices, or use
+            Export → Project backup for a file you can keep or move.
           </p>
         </div>
         <div style={{padding:"12px 16px",borderTop:"1px solid var(--line)",display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -2537,7 +2669,18 @@ function HelpModal({ onClose }){
           <Row k="+ −" v="Zoom the waveform" />
           <Row k="⌘ + scroll" v="Zoom the waveform at the cursor" />
           <Row k="F" v="Follow audio on / off" />
-          <Row k="esc" v="Clear selection and region" />
+          <Row k=", ." v="Previous / next shot" />
+          <Row k="esc" v="Clear selection and region · leave annotation mode" />
+          <Row k="?" v="This help" />
+
+          <h3 style={{fontSize:13,marginTop:18}}>Working with tags</h3>
+          <Row k="▶ on a shot" v="Play just that shot, stopping at its end" />
+          <Row k="⤢ Annotate" v="Highlight words for one tag; click a highlight to add its note, Delete removes it" />
+          <Row k="✕ on a line" v="In annotation mode, detach that line from the tag" />
+          <Row k="＋ N lines" v="Attach the lines selected in the script to a tag" />
+          <Row k="Brief" v="The first comment — the main instruction animators see" />
+          <Row k="Replace script…" v="Load a new version; tags move onto the new lines after a preview" />
+          <Row k="Compact / Expanded" v="Shot list density, remembered per project" />
         </div>
         <div style={{padding:"12px 16px",borderTop:"1px solid var(--line)"}}>
           <button className="btn btn-primary" onClick={onClose}>Got it</button>
