@@ -116,6 +116,8 @@
   .tile { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 10px; cursor:pointer; min-width:0;
           transition:border-color .15s ease, background .15s ease; }
   .tile:hover, .tile:focus-visible { border-color:var(--line2); background:#221F19; }
+  .rstats { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin:12px 0 4px; }
+  .rstat { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 10px; }
   .tile-text { margin-top:6px; font-size:13px; color:var(--muted); line-height:1.7; display:-webkit-box;
                -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
   .ann-sel { outline:2px solid var(--text); outline-offset:1px; }
@@ -326,6 +328,69 @@ function cuesInRange(cues, a, b, offset) {
   }).map((c)=>c.id);
 }
 
+/* ---------------- re-anchoring tags onto a new script version (item 9) ----------------
+   Each tag keeps its time range and is linked to the new lines under it
+   (cuesInRange). Highlights move by finding the same words in the tag's new
+   lines — split in two when a new line break falls inside them. Ones that
+   can't be found are kept, flagged orphan with their text, so a later reload
+   can still place them.                                                     */
+function phraseOf(a, oldCues, oldIndex){ const c=oldCues[oldIndex[a.cueId]]; return c?c.text.slice(a.s,a.e):(a.text||""); }
+function orphanAnn(a, oldCues, oldIndex){ return Object.assign({},a,{ orphan:true, text:phraseOf(a,oldCues,oldIndex) }); }
+function moveAnnotations(anns, lines, oldCues, oldIndex){
+  let joined=""; const starts=[];
+  lines.forEach((c,i)=>{ starts.push(joined.length); joined+=c.text+(i<lines.length-1?" ":""); });
+  const out=[]; let moved=0, lost=0;
+  anns.forEach((a)=>{
+    const phrase=phraseOf(a,oldCues,oldIndex);
+    if(!phrase.trim()){ out.push(a); return; }
+    const oc=oldCues[oldIndex[a.cueId]], t0=oc&&oc.start!=null?oc.start:null;
+    // every occurrence; pick the one whose line starts closest in time to the old line
+    let best=-1, bestD=Infinity, from=0, at;
+    while((at=joined.indexOf(phrase,from))>=0){
+      let li=0; while(li+1<starts.length&&starts[li+1]<=at) li++;
+      const d=t0==null?0:Math.abs((lines[li].start||0)-t0);
+      if(d<bestD){ bestD=d; best=at; }
+      from=at+1;
+    }
+    if(best<0){ lost++; out.push(orphanAnn(a,oldCues,oldIndex)); return; }
+    moved++;
+    let first=true;
+    lines.forEach((c,i)=>{
+      const ls=starts[i], le=ls+c.text.length, s=Math.max(best,ls), e=Math.min(best+phrase.length,le);
+      if(e<=s) return;
+      const x=Object.assign({},a,{ cueId:c.id, s:s-ls, e:e-ls }); delete x.orphan; delete x.text;
+      if(!first) x.id=uid();
+      first=false; out.push(x);
+    });
+  });
+  return { out, moved, lost };
+}
+function planReanchor(markers, oldCues, oldIndex, newCues, offset, rangeOf){
+  const byId={}; newCues.forEach((c)=>{ byId[c.id]=c; });
+  const rows=[]; let hlMoved=0, hlLost=0;
+  const next=markers.map((m)=>{
+    const r=rangeOf(m);
+    if(!(m.cueIds||[]).length){ rows.push({ m, kind:"kept", r }); return m; }   // time-only tags stay as they are
+    const ids=cuesInRange(newCues,r.start,r.end,offset);
+    if(!ids.length){
+      // no line under it any more: keep it as a region at its old times so nothing is lost
+      rows.push({ m, kind:"unmatched", r });
+      hlLost+=(m.annotations||[]).length;
+      return Object.assign({},m,{ cueIds:[], start:r.start, end:r.end,
+        annotations:(m.annotations||[]).map((a)=>orphanAnn(a,oldCues,oldIndex)) });
+    }
+    const spans=ids.map((id)=>{ const c=byId[id]; return { s:c.start+offset, e:(c.origEnd!=null?c.origEnd:c.end!=null?c.end:c.start)+offset }; });
+    const nr={ start:Math.min(...spans.map((x)=>x.s)), end:Math.max(...spans.map((x)=>x.e)) };
+    rows.push({ m, kind:Math.max(r.start-nr.start,nr.end-r.end)>0.5?"ambiguous":"clean", r, nr });
+    const res=moveAnnotations(m.annotations||[], ids.map((id)=>byId[id]), oldCues, oldIndex);
+    hlMoved+=res.moved; hlLost+=res.lost;
+    return Object.assign({},m,{ cueIds:ids, annotations:res.out });
+  });
+  const n=(k)=>rows.filter((x)=>x.kind===k).length;
+  return { markers:next, rows, hlMoved, hlLost,
+           counts:{ clean:n("clean"), ambiguous:n("ambiguous"), unmatched:n("unmatched"), kept:n("kept") } };
+}
+
 /* ---------------- storage ---------------- */
 const LS="dimna:projects", LAST="dimna:last";
 const readAll = () => {
@@ -517,6 +582,7 @@ function App(){
   const [statusFilter,setStatusFilter]=useState(null);
 
   const [importOpen,setImportOpen]=useState(false);
+  const [reanchor,setReanchor]=useState(null);   // { parsed, plan } while the re-anchor preview is open (item 9)
   const [importText,setImportText]=useState("");
   const [tagImport,setTagImport]=useState(null);
   const [tagsOpen,setTagsOpen]=useState(false);
@@ -1021,9 +1087,21 @@ function App(){
   const applyScript=(text,replace,fillGaps)=>{
     const parsed=parseScript(text,fillGaps);
     if(!parsed.length){ say("Nothing to import."); return; }
-    commit({ cues:replace?parsed:cues.concat(parsed), markers:replace?[]:markers });
-    setImportOpen(false); setSel([]);
+    if(replace&&markers.length){
+      // never wipe tags silently: preview moving them onto the new lines first (item 9)
+      setReanchor({ parsed, plan:planReanchor(markers,cues,cueIndex,parsed,offset,range) });
+      setImportOpen(false); return;
+    }
+    commit({ cues:replace?parsed:cues.concat(parsed), markers });
+    setImportOpen(false); setSel([]); setAnnotId(null);
     say("Imported "+parsed.length+" lines"+(fillGaps?" · gaps filled":"")+".");
+  };
+  const applyReanchor=(wipe)=>{
+    const { parsed, plan }=reanchor;
+    commit({ cues:parsed, markers:wipe?[]:plan.markers });
+    setReanchor(null); setSel([]); setAnnotId(null); setExpanded({});
+    say(wipe?"Script replaced · all tags deleted · ⌘Z to undo"
+            :"Script replaced · "+plan.markers.length+" tag"+(plan.markers.length===1?"":"s")+" kept · ⌘Z to undo");
   };
   const readTxt=(f,then)=>{ const r=new FileReader(); r.onload=()=>then(String(r.result)); r.readAsText(f,"utf-8"); };
 
@@ -1437,8 +1515,10 @@ function App(){
       </footer>
 
       {/* ---------- modals ---------- */}
-      {importOpen&&<ImportModal text={importText} setText={setImportText}
+      {importOpen&&<ImportModal text={importText} setText={setImportText} tagCount={markers.length}
         onClose={()=>setImportOpen(false)} onApply={applyScript} />}
+      {reanchor&&<ReanchorModal plan={reanchor.plan} lineCount={reanchor.parsed.length} tagOf={tagOf}
+        onApply={()=>applyReanchor(false)} onWipe={()=>applyReanchor(true)} onClose={()=>setReanchor(null)} />}
       {tagImport&&<TagImportModal raw={tagImport.raw} tags={tags}
         onClose={()=>setTagImport(null)} onApply={applyTagList} />}
       {tagsOpen&&<TagModal tags={tags} counts={counts} onClose={()=>setTagsOpen(false)}
@@ -2163,7 +2243,66 @@ function CueEditor({ cue,onSave,onCancel,size }){
 }
 
 /* =============== import modals =============== */
-function ImportModal({ text,setText,onApply,onClose }){
+/* =============== re-anchor preview (item 9) =============== */
+function ReanchorModal({ plan, lineCount, tagOf, onApply, onWipe, onClose }){
+  const c=plan.counts;
+  const amb=plan.rows.filter((r)=>r.kind==="ambiguous"), un=plan.rows.filter((r)=>r.kind==="unmatched");
+  const stat=(n,label,color,hint)=>(
+    <div className="rstat"><div className="mono" style={{fontSize:22,color,lineHeight:1.2}}>{n}</div>
+      <div style={{fontSize:12,fontWeight:600}}>{label}</div><div style={{fontSize:11,color:"var(--dim)",lineHeight:1.5}}>{hint}</div></div>);
+  const list=(title,rows,withNew)=>rows.length>0&&(
+    <div style={{marginTop:12}}>
+      <div style={{fontSize:12,color:"var(--muted)",marginBottom:5}}>{title}</div>
+      <div style={{border:"1px solid var(--line)",borderRadius:7,maxHeight:170,overflowY:"auto"}}>
+        {rows.map((r,i)=>{ const t=tagOf(r.m.tagId);
+          return <div key={r.m.id} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 10px",fontSize:12,
+            borderTop:i?"1px solid var(--line)":"none"}}>
+            <span className="chip" style={{background:t.color+"22",color:t.color}}><span className="dot" style={{background:t.color}} />{t.label}</span>
+            <span className="mono" style={{color:"var(--dim)"}}>{clock(r.r.start)}–{clock(r.r.end)}</span>
+            {withNew&&r.nr&&<span className="mono" style={{color:"var(--warn)"}}>→ {clock(r.nr.start)}–{clock(r.nr.end)}</span>}
+          </div>; })}
+      </div>
+    </div>);
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal enter" onClick={(e)=>e.stopPropagation()}>
+        <div className="pane-head"><h2>Keep your tags on the new script</h2><div style={{flex:1}} />
+          <button className="btn btn-xs btn-ghost" onClick={onClose}>✕</button></div>
+        <div style={{padding:16,overflowY:"auto"}}>
+          <p style={{marginTop:0,fontSize:13,color:"var(--muted)",lineHeight:1.7}}>
+            The new version has {lineCount} lines. Every tag keeps its time range and is linked to the new lines under it.
+            Nothing changes until you apply, and ⌘Z undoes it.
+          </p>
+          <div className="rstats">
+            {stat(c.clean,"Re-anchored","var(--ok)","new lines sit inside the old range")}
+            {stat(c.ambiguous,"Check these","var(--warn)","a new line sticks out > 0.5 s")}
+            {stat(c.unmatched,"No line left","var(--bad)","kept as a region at its old times")}
+            {stat(c.kept,"Time-only","var(--muted)","regions without lines, unchanged")}
+          </div>
+          {(plan.hlMoved+plan.hlLost)>0&&(
+            <p style={{fontSize:12,color:"var(--muted)",marginBottom:0}}>
+              Highlights: {plan.hlMoved} moved to the new lines
+              {plan.hlLost?" · "+plan.hlLost+" not found in the new wording (kept aside, hidden)":""}.
+            </p>
+          )}
+          {list("Ambiguous — old range → new lines",amb,true)}
+          {list("No line under them any more",un,false)}
+        </div>
+        <div style={{padding:"12px 16px",borderTop:"1px solid var(--line)",display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button className="btn btn-primary" onClick={onApply}>Apply · keep {plan.markers.length} tag{plan.markers.length===1?"":"s"}</button>
+          <button className="btn" style={{color:"var(--bad)"}}
+            onClick={()=>{ if(window.confirm("Replace the script and delete all "+plan.markers.length+" tags?")) onWipe(); }}>
+            Replace &amp; delete tags
+          </button>
+          <div style={{flex:1}} />
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImportModal({ text,setText,onApply,onClose,tagCount }){
   const [fill,setFill]=useState(true);
   const preview=useMemo(()=>parseScript(text,fill),[text,fill]);
   const timed=preview.filter((c)=>c.start!==null).length;
@@ -2191,7 +2330,10 @@ function ImportModal({ text,setText,onApply,onClose }){
           )}
         </div>
         <div style={{padding:"12px 16px",borderTop:"1px solid var(--line)",display:"flex",gap:8}}>
-          <button className="btn btn-primary" onClick={()=>onApply(text,true,fill)} disabled={!preview.length}>Replace script</button>
+          <button className="btn btn-primary" onClick={()=>onApply(text,true,fill)} disabled={!preview.length}
+            title={tagCount?"You'll see how your "+tagCount+" tags move onto the new lines before anything changes":undefined}>
+            {tagCount?"Replace script…":"Replace script"}
+          </button>
           <button className="btn" onClick={()=>onApply(text,false,fill)} disabled={!preview.length}>Append</button>
           <div style={{flex:1}} />
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
