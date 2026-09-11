@@ -301,7 +301,8 @@ function segments(text, anns){
 /* ---------------- cloud ---------------- */
 const CLOUD_KEY="dimna:cloud";
 const AUDIO_TTL_DAYS=14;
-const readCloudCfg=()=>{ try{ return JSON.parse(localStorage.getItem(CLOUD_KEY)||"null"); }catch(e){ return null; } };
+const DEFAULT_CLOUD={ url:"https://jzgrvwibahknkfnzghzp.supabase.co", key:"sb_publishable_hHHusR5jkK4lAAYG0AmXCQ_W5TSOL_X" };
+const readCloudCfg=()=>{ try{ return JSON.parse(localStorage.getItem(CLOUD_KEY)||"null")||DEFAULT_CLOUD; }catch(e){ return DEFAULT_CLOUD; } };
 const writeCloudCfg=(c)=>localStorage.setItem(CLOUD_KEY,JSON.stringify(c));
 function makeClient(cfg){
   if(!cfg||!cfg.url||!cfg.key||!window.supabase) return null;
