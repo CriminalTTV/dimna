@@ -667,7 +667,8 @@ function App(){
   const [sel,setSel]=useState([]);
   const [anchor,setAnchor]=useState(null);
   const [editCue,setEditCue]=useState(null);
-  const [expanded,setExpanded]=useState({});
+  const [expanded,setExpanded]=useState({});     // multi-tag folders shown open
+  const [openTiles,setOpenTiles]=useState({});   // Compact view: tiles opened into full blocks
   const [annotId,setAnnotId]=useState(null);   // tag whose script highlights are being edited (item 3c)
   const [flash,setFlash]=useState(null);
   const [follow,setFollow]=useState(true);
@@ -967,6 +968,7 @@ function App(){
   // a tag chip in the script scrolls the shot list to its block
   const jumpToGroup=(key)=>{
     setExpanded((g)=>Object.assign({},g,{[key]:true}));
+    setOpenTiles((g)=>Object.assign({},g,{[key]:true}));
     if(isPhone) setPhonePane("shots");
     setTimeout(()=>{
       const el=document.querySelector('[data-gkey="'+CSS.escape(key)+'"]'); if(!el) return;
@@ -1585,14 +1587,14 @@ function App(){
               ):(
                 <div className={shotMode==="compact"?"shot-grid":""}>
                   {groups.map((gr,gi)=>{
-                    const full=shotMode!=="compact"||!!expanded[gr.key]||gr.items.some((m)=>m.id===annotId);
+                    const full=shotMode!=="compact"||!!openTiles[gr.key]||gr.items.some((m)=>m.id===annotId);
                     return full?(
                       <GroupCard key={gr.key} gr={gr} gi={gi} tags={tags} tagOf={tagOf} fps={fps}
                         cues={cues} cueIndex={cueIndex} expanded={!!expanded[gr.key]} mode={shotMode}
                         live={!!audioUrl&&time>=gr.start&&time<gr.end}
                         onPlay={audioUrl?()=>playRange(gr.start,gr.end):null}
                         onToggle={()=>setExpanded((g)=>Object.assign({},g,{[gr.key]:!g[gr.key]}))}
-                        onCollapse={shotMode==="compact"?()=>setExpanded((g)=>Object.assign({},g,{[gr.key]:false})):null}
+                        onCollapse={shotMode==="compact"?()=>setOpenTiles((g)=>Object.assign({},g,{[gr.key]:false})):null}
                         onSeek={seek} onSelectLines={(ids)=>setSel(ids)} flash={flash}
                         onUpdate={updMarker} onDelete={delMarker}
                         onAddComment={addComment} onEditComment={editComment} onDelComment={delComment}
@@ -1600,7 +1602,7 @@ function App(){
                         annotId={annotId} setAnnotId={setAnnotId} sel={sel} onRelink={relink} />
                     ):(
                       <ShotTile key={gr.key} gr={gr} gi={gi} tagOf={tagOf} cues={cues} cueIndex={cueIndex}
-                        onOpen={()=>setExpanded((g)=>Object.assign({},g,{[gr.key]:true}))} onSeek={seek} />
+                        onOpen={()=>setOpenTiles((g)=>Object.assign({},g,{[gr.key]:true}))} onSeek={seek} />
                     );
                   })}
                 </div>
@@ -1973,7 +1975,7 @@ function GroupCard(props){
           annotId,setAnnotId,sel,onRelink,mode,onCollapse,onPlay,live } = props;
   const multi=gr.items.length>1;
   const editing=gr.items.find((m)=>m.id===annotId)||null;   // tag in annotation mode, if it's in this folder
-  const open=expanded||!multi||!!editing||mode==="expanded";
+  const open=expanded||!multi||!!editing||mode==="expanded"||mode==="compact";   // an opened tile shows every tag
   const cueIds=gr.items[0].cueIds||[];
   const lines=cueIds.map((id)=>cues[cueIndex[id]]).filter(Boolean);
   const span=tc(gr.start,fps)+(gr.end>gr.start+0.05?"  →  "+tc(gr.end,fps):"");
