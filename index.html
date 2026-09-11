@@ -80,6 +80,22 @@
           padding:1px 8px; font-size:11px; font-weight:500; white-space:nowrap; }
   .dot { width:7px; height:7px; border-radius:2px; flex:none; }
 
+  /* themed dropdown + date picker (replace native <select> / type=date) */
+  .dd-btn { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .dd-caret { font-size:9px; opacity:.65; }
+  .pop { position:fixed; z-index:300; background:var(--raise); border:1px solid var(--line2); border-radius:8px;
+         box-shadow:0 12px 32px rgba(0,0,0,.55); padding:4px; max-height:300px; overflow-y:auto; }
+  .pop-item { display:flex; align-items:center; gap:8px; width:100%; text-align:start; background:transparent;
+              border:0; border-radius:6px; padding:6px 10px; font-size:13px; color:var(--text); white-space:nowrap; }
+  .pop-item:hover, .pop-item.hot { background:var(--panel2); }
+  .pop-item.on { color:var(--accent); font-weight:600; }
+  .dp-grid { display:grid; grid-template-columns:repeat(7,30px); gap:2px; }
+  .dp-day { height:28px; border:0; border-radius:6px; background:transparent; font-size:12px; color:var(--text); }
+  .dp-day:hover { background:var(--panel2); }
+  .dp-day.out { color:var(--dim); }
+  .dp-day.today { box-shadow:inset 0 0 0 1px var(--accent); }
+  .dp-day.on { background:var(--accent); color:#16140F; font-weight:600; }
+
   .pane { overflow-y:auto; overflow-x:hidden; padding:12px 16px 40px; }
   .pane-head { display:flex; align-items:center; gap:9px; padding:9px 14px;
                border-bottom:1px solid var(--line); flex-wrap:wrap; flex:none; }
@@ -120,7 +136,7 @@
 <div id="root"></div>
 
 <script type="text/babel">
-const { useState, useRef, useEffect, useMemo, useCallback } = React;
+const { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } = React;
 const LOGO = "data:image/png;base64,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";
 
 const PALETTE = ["#D6A354","#7FA8C9","#8CB88A","#B992C4","#D98E7A","#7FC4C0","#C9A87C","#A8A0D6","#D6C254","#9AA0A8"];
@@ -1224,13 +1240,12 @@ function App(){
             style={{borderColor:showSilence?"var(--warn)":"var(--line)",color:showSilence?"var(--warn)":"var(--muted)"}}>
             Silence
           </button>
-          <select className="btn btn-sm" value={rate} onChange={(e)=>{const r=+e.target.value;setRate(r);
-            if(audioRef.current)audioRef.current.playbackRate=r;}}>
-            {[0.5,0.75,1,1.25,1.5,1.75,2].map((r)=><option key={r} value={r}>{r}×</option>)}
-          </select>
-          <select className="btn btn-sm" value={fps} onChange={(e)=>patch({fps:+e.target.value})}>
-            {[23.976,24,25,29.97,30,50,60].map((f)=><option key={f} value={f}>{f} fps</option>)}
-          </select>
+          <Dropdown className="btn btn-sm" value={rate} title="Playback speed"
+            options={[0.5,0.75,1,1.25,1.5,1.75,2].map((r)=>({ value:r, label:r+"×" }))}
+            onChange={(r)=>{ setRate(r); if(audioRef.current) audioRef.current.playbackRate=r; }} />
+          <Dropdown className="btn btn-sm" value={fps} title="Timecode frame rate"
+            options={[23.976,24,25,29.97,30,50,60].map((f)=>({ value:f, label:f+" fps" }))}
+            onChange={(f)=>patch({fps:f})} />
           <button className="btn btn-sm" onClick={()=>fileRef.current&&fileRef.current.click()}>
             {audioUrl?"Change audio":"Load audio"}
           </button>
@@ -1289,6 +1304,123 @@ function App(){
       {toast&&<div className="toast enter">{toast}</div>}
     </div>
   );
+}
+
+/* =============== themed dropdown & date picker ===============
+   Native <select> lists and date pickers open white on the dark theme and
+   can't be styled, so both are drawn here. The popover is portalled to
+   <body> with position:fixed, so a scrolling pane never clips it.          */
+function usePopover(keepLtr){
+  const btnRef=useRef(null), popRef=useRef(null);
+  const [open,setOpen]=useState(false);
+  const [,bump]=useState(0);
+  useEffect(()=>{
+    if(!open) return;
+    const inside=(t)=>(popRef.current&&popRef.current.contains(t))||(btnRef.current&&btnRef.current.contains(t));
+    const away=(e)=>{ if(!inside(e.target)) setOpen(false); };
+    const moved=()=>bump((n)=>n+1);
+    document.addEventListener("mousedown",away,true);
+    window.addEventListener("scroll",moved,true);
+    window.addEventListener("resize",moved);
+    return ()=>{ document.removeEventListener("mousedown",away,true);
+                 window.removeEventListener("scroll",moved,true); window.removeEventListener("resize",moved); };
+  },[open]);
+  // under the button (above it if there's no room), kept inside the viewport
+  useLayoutEffect(()=>{
+    const p=popRef.current, b=btnRef.current; if(!open||!p||!b) return;
+    const rtl=!keepLtr&&getComputedStyle(b).direction==="rtl";
+    p.dir=rtl?"rtl":"ltr";
+    const r=b.getBoundingClientRect(), h=p.offsetHeight, w=Math.max(p.offsetWidth,r.width);
+    let top=r.bottom+4; if(top+h>window.innerHeight-8&&r.top-h-4>8) top=r.top-h-4;
+    const left=clamp(rtl?r.right-w:r.left,8,Math.max(8,window.innerWidth-w-8));
+    p.style.top=top+"px"; p.style.left=left+"px"; p.style.minWidth=r.width+"px";
+  });
+  return { btnRef, popRef, open, setOpen };
+}
+
+// options: [{ value, label, color?, round? }] — color draws a swatch (round = status dot)
+function Dropdown({ value, options, onChange, className, style, title }){
+  const { btnRef, popRef, open, setOpen }=usePopover(false);
+  const [hot,setHot]=useState(-1);
+  const cur=options.find((o)=>String(o.value)===String(value))||options[0];
+  const curIdx=Math.max(0,options.indexOf(cur));
+  const pick=(o)=>{ setOpen(false); if(String(o.value)!==String(value)) onChange(o.value); if(btnRef.current) btnRef.current.focus(); };
+  const swatch=(o)=>o&&o.color?<span className="dot" style={{background:o.color,borderRadius:o.round?"50%":2}} />:null;
+  const onKey=(e)=>{
+    const k=e.key;
+    if(!open){
+      if(k==="ArrowDown"||k==="ArrowUp"||k==="Enter"||k===" "){ e.preventDefault(); e.stopPropagation(); setHot(curIdx); setOpen(true); }
+      return;
+    }
+    if(k==="Escape"){ e.preventDefault(); e.stopPropagation(); setOpen(false); }
+    else if(k==="ArrowDown"){ e.preventDefault(); e.stopPropagation(); setHot((h)=>Math.min(options.length-1,h+1)); }
+    else if(k==="ArrowUp"){ e.preventDefault(); e.stopPropagation(); setHot((h)=>Math.max(0,h-1)); }
+    else if(k==="Enter"||k===" "){ e.preventDefault(); e.stopPropagation(); if(options[hot]) pick(options[hot]); }
+    else if(k==="Tab") setOpen(false);
+  };
+  return (<>
+    <button ref={btnRef} type="button" className={"dd-btn "+(className||"")} style={style} title={title}
+      aria-haspopup="listbox" aria-expanded={open}
+      onClick={()=>{ setHot(curIdx); setOpen((v)=>!v); }} onKeyDown={onKey}>
+      {swatch(cur)}<span>{cur?cur.label:""}</span><span className="dd-caret">▾</span>
+    </button>
+    {open&&ReactDOM.createPortal(
+      <div ref={popRef} className="pop fade" role="listbox" style={{top:-9999,left:-9999}}>
+        {options.map((o,i)=>(
+          <button key={String(o.value)} type="button" role="option" aria-selected={o===cur} tabIndex={-1}
+            className={"pop-item"+(o===cur?" on":"")+(i===hot?" hot":"")}
+            onMouseEnter={()=>setHot(i)} onClick={()=>pick(o)}>
+            {swatch(o)}{o.label}
+          </button>
+        ))}
+      </div>, document.body)}
+  </>);
+}
+
+const parseISODate=(s)=>{ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||""); return m?new Date(+m[1],+m[2]-1,+m[3]):null; };
+
+// value / onChange use "YYYY-MM-DD" local dates (localISO — never toISOString, see CLAUDE.md)
+function DatePicker({ value, onChange, className, style, placeholder, title }){
+  const { btnRef, popRef, open, setOpen }=usePopover(true);
+  const [cursor,setCursor]=useState(()=>{ const b=parseISODate(value)||new Date(); return new Date(b.getFullYear(),b.getMonth(),1); });
+  useEffect(()=>{ if(open){ const b=parseISODate(value)||new Date(); setCursor(new Date(b.getFullYear(),b.getMonth(),1)); } },[open]);
+  const y=cursor.getFullYear(), mo=cursor.getMonth(), startDow=(new Date(y,mo,1).getDay()+6)%7;   // Monday first
+  const cells=[]; for(let i=0;i<42;i++) cells.push(new Date(y,mo,1-startDow+i));
+  const t=today();
+  const pick=(v)=>{ setOpen(false); if(v!==(value||"")) onChange(v); if(btnRef.current) btnRef.current.focus(); };
+  return (<>
+    <button ref={btnRef} type="button" className={"dd-btn mono "+(className||"")} style={style} title={title} dir="ltr"
+      aria-haspopup="dialog" aria-expanded={open}
+      onClick={()=>setOpen((v)=>!v)}
+      onKeyDown={(e)=>{ if(open&&e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); setOpen(false); } }}>
+      <span>{value||placeholder||"No date"}</span><span className="dd-caret">▾</span>
+    </button>
+    {open&&ReactDOM.createPortal(
+      <div ref={popRef} className="pop fade" role="dialog" style={{top:-9999,left:-9999,padding:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:6}}>
+          <button type="button" className="btn btn-xs btn-ghost" onClick={()=>setCursor(new Date(y,mo-1,1))}>←</button>
+          <span style={{flex:1,textAlign:"center",fontSize:12,fontWeight:600}}>
+            {cursor.toLocaleString("en",{month:"long",year:"numeric"})}
+          </span>
+          <button type="button" className="btn btn-xs btn-ghost" onClick={()=>setCursor(new Date(y,mo+1,1))}>→</button>
+        </div>
+        <div className="dp-grid">
+          {["Mo","Tu","We","Th","Fr","Sa","Su"].map((d)=>(
+            <div key={d} style={{fontSize:10,color:"var(--dim)",textAlign:"center",padding:"2px 0"}}>{d}</div>
+          ))}
+          {cells.map((c)=>{ const iso=localISO(c);
+            return <button key={iso} type="button"
+              className={"dp-day mono"+(c.getMonth()!==mo?" out":"")+(iso===t?" today":"")+(iso===value?" on":"")}
+              onClick={()=>pick(iso)}>{c.getDate()}</button>; })}
+        </div>
+        <div style={{display:"flex",gap:6,marginTop:8}}>
+          <button type="button" className="btn btn-xs" onClick={()=>pick(t)}>Today</button>
+          <div style={{flex:1}} />
+          {value&&<button type="button" className="btn btn-xs btn-ghost" style={{color:"var(--muted)"}}
+            onClick={()=>pick("")}>Clear</button>}
+        </div>
+      </div>, document.body)}
+  </>);
 }
 
 /* =============== annotated text =============== */
@@ -1466,20 +1598,17 @@ function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onDelCo
   return (
     <div className={flash?"pop":""} style={{marginTop:9,paddingTop:9,borderTop:"1px solid var(--line)"}}>
       <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
-        <select className="btn btn-xs btn-ghost" value={m.tagId}
-          onChange={(e)=>onUpdate(m.id,{tagId:e.target.value})}
-          style={{color:t.color,borderColor:t.color+"55"}}>
-          {tags.map((x)=><option key={x.id} value={x.id} style={{color:"#000"}}>{x.label}</option>)}
-        </select>
-        <select className="btn btn-xs btn-ghost" value={m.status||"todo"}
-          onChange={(e)=>onUpdate(m.id,{status:e.target.value})}
-          style={{color:st.color,borderColor:st.color+"55"}}>
-          {STATUS.map((s)=><option key={s.id} value={s.id} style={{color:"#000"}}>{s.label}</option>)}
-        </select>
-        <input className="field mono" type="date" value={m.due||""}
-          onChange={(e)=>onUpdate(m.id,{due:e.target.value})}
-          style={{width:132,padding:"2px 6px",fontSize:11,
-                  color:m.due&&m.due<today()&&(m.status||"todo")!=="done"?"var(--bad)":"var(--muted)"}} />
+        <Dropdown className="btn btn-xs btn-ghost" value={m.tagId} title="Tag"
+          options={tags.map((x)=>({ value:x.id, label:x.label, color:x.color }))}
+          onChange={(v)=>onUpdate(m.id,{tagId:v})}
+          style={{color:t.color,borderColor:t.color+"55"}} />
+        <Dropdown className="btn btn-xs btn-ghost" value={m.status||"todo"} title="Status"
+          options={STATUS.map((s)=>({ value:s.id, label:s.label, color:s.color, round:true }))}
+          onChange={(v)=>onUpdate(m.id,{status:v})}
+          style={{color:st.color,borderColor:st.color+"55"}} />
+        <DatePicker className="btn btn-xs btn-ghost" value={m.due||""} placeholder="Due date" title="Due date"
+          onChange={(v)=>onUpdate(m.id,{due:v})}
+          style={{fontSize:11,color:m.due&&m.due<today()&&(m.status||"todo")!=="done"?"var(--bad)":"var(--muted)"}} />
         <div style={{flex:1}} />
         <button className="btn btn-xs btn-ghost" style={{color:"var(--muted)"}}
           onClick={()=>{setDraft(m.note||"");setEditingNote((v)=>!v);}}>
@@ -1613,11 +1742,11 @@ function Calendar({ projects,current,onOpenProject,onPatch }){
         <button className="btn btn-sm btn-ghost" onClick={()=>{const d=new Date();setCursor(new Date(d.getFullYear(),d.getMonth(),1));}}>Today</button>
         <div style={{flex:1}} />
         <span style={{fontSize:12,color:"var(--muted)"}}>This project:</span>
-        <input className="field mono" type="date" value={current.startDate||""}
-          onChange={(e)=>onPatch({startDate:e.target.value})} style={{width:140,padding:"3px 7px",fontSize:12}} />
+        <DatePicker className="btn btn-sm" value={current.startDate||""} placeholder="Start"
+          onChange={(v)=>onPatch({startDate:v})} />
         <span style={{color:"var(--dim)"}}>→</span>
-        <input className="field mono" type="date" value={current.dueDate||""}
-          onChange={(e)=>onPatch({dueDate:e.target.value})} style={{width:140,padding:"3px 7px",fontSize:12}} />
+        <DatePicker className="btn btn-sm" value={current.dueDate||""} placeholder="Due"
+          onChange={(v)=>onPatch({dueDate:v})} />
       </div>
       <div className="pane" style={{flex:1}}>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:5,marginBottom:6}}>
@@ -1826,11 +1955,11 @@ function ProjectModal({ projects,current,onOpen,onNew,onDuplicate,onDelete,onExp
         <div style={{padding:16,overflowY:"auto"}}>
           <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
             <span style={{fontSize:12,color:"var(--muted)"}}>Current project runs</span>
-            <input className="field mono" type="date" value={current.startDate||""}
-              onChange={(e)=>onPatch({startDate:e.target.value})} style={{width:140,padding:"3px 7px",fontSize:12}} />
+            <DatePicker className="btn btn-sm" value={current.startDate||""} placeholder="Start"
+              onChange={(v)=>onPatch({startDate:v})} />
             <span style={{color:"var(--dim)"}}>→</span>
-            <input className="field mono" type="date" value={current.dueDate||""}
-              onChange={(e)=>onPatch({dueDate:e.target.value})} style={{width:140,padding:"3px 7px",fontSize:12}} />
+            <DatePicker className="btn btn-sm" value={current.dueDate||""} placeholder="Due"
+              onChange={(v)=>onPatch({dueDate:v})} />
           </div>
           {list.map((p)=>{
             const done=(p.markers||[]).filter((m)=>(m.status||"todo")==="done").length;
