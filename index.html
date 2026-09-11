@@ -34,6 +34,9 @@
   button:disabled { cursor:default; opacity:.38; }
   :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
   .mono { font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+  /* English labels inside an RTL interface keep their own reading order ("▸ 2 tags", not "tags 2 ▸");
+     Arabic tag names still read right-to-left */
+  .btn, .tab, .chip, .fchip, .seg button, .pop-item, .pane-switch button { unicode-bidi:plaintext; }
   /* timecodes and numbers always read left-to-right, even inside an RTL interface */
   span.mono, button.mono, input.mono { direction:ltr; unicode-bidi:isolate; }
 
