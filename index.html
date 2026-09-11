@@ -71,6 +71,14 @@
   .cue textarea, .cue input, .ann-area { user-select:text; -webkit-user-select:text; }
 
   .ann { border-radius:3px; padding:0 1px; cursor:help; }
+  .ann-edit .ann { cursor:pointer; }
+  .ann-sel { outline:2px solid var(--text); outline-offset:1px; }
+  .ann-tip { position:fixed; z-index:320; transform:translate(-50%,calc(-100% - 6px)); max-width:300px;
+             background:var(--raise); border:1px solid var(--line2); border-radius:6px; padding:5px 9px;
+             font-size:12px; line-height:1.6; pointer-events:none; white-space:pre-wrap;
+             box-shadow:0 8px 20px rgba(0,0,0,.45); }
+  .annotating { outline:2px solid var(--accent); outline-offset:-1px;
+                box-shadow:0 0 0 6px rgba(201,168,124,.14), 0 10px 30px rgba(0,0,0,.35); }
 
   @keyframes enter { from{opacity:0;transform:translateY(-5px)} to{opacity:1;transform:none} }
   .enter { animation:enter .17s cubic-bezier(.2,.7,.4,1) both; }
@@ -412,6 +420,7 @@ function App(){
   const [anchor,setAnchor]=useState(null);
   const [editCue,setEditCue]=useState(null);
   const [expanded,setExpanded]=useState({});
+  const [annotId,setAnnotId]=useState(null);   // tag whose script highlights are being edited (item 3c)
   const [flash,setFlash]=useState(null);
   const [follow,setFollow]=useState(true);
   const [query,setQuery]=useState("");
@@ -697,8 +706,11 @@ function App(){
     updMarker(m.id,{ comments:(m.comments||[]).concat({id:uid(),text:text.trim(),at:Date.now()}) });
   };
   const delComment=(m,cid)=>updMarker(m.id,{ comments:(m.comments||[]).filter((c)=>c.id!==cid) });
-  const addAnnotation=(m,a)=>updMarker(m.id,{ annotations:(m.annotations||[]).concat(Object.assign({id:uid()},a)) });
-  const delAnnotation=(m,aid)=>updMarker(m.id,{ annotations:(m.annotations||[]).filter((a)=>a.id!==aid) });
+  // adding / removing a highlight is undoable; editing its note, colour or style is not
+  const withAnns=(mid,fn)=>markers.map((x)=>x.id===mid?Object.assign({},x,{annotations:fn(x.annotations||[])}):x);
+  const addAnnotation=(m,a)=>commit({ markers:withAnns(m.id,(l)=>l.concat(Object.assign({id:uid()},a))) });
+  const updAnnotation=(m,aid,p)=>patch({ markers:withAnns(m.id,(l)=>l.map((a)=>a.id===aid?Object.assign({},a,p):a)) });
+  const delAnnotation=(m,aid)=>commit({ markers:withAnns(m.id,(l)=>l.filter((a)=>a.id!==aid)) });
 
   const saveCue=(id,text,start)=>{
     commit({ cues:cues.map((c)=>c.id===id?Object.assign({},c,{text,start:start==null?c.start:start}):c) });
@@ -714,7 +726,7 @@ function App(){
       const mod = e.metaKey||e.ctrlKey;
       if(mod && e.key.toLowerCase()==="z"){ e.preventDefault(); e.shiftKey?redo():undo(); return; }
       if(mod && e.key.toLowerCase()==="a"){ e.preventDefault(); setSel(cues.map((c)=>c.id)); return; }
-      if(e.key==="Escape"){ setSel([]); setRegion(null); return; }
+      if(e.key==="Escape"){ setSel([]); setRegion(null); setAnnotId(null); return; }
       if((e.key==="Delete"||e.key==="Backspace") && sel.length){ e.preventDefault(); deleteSelected(); return; }
       if(e.code==="Space"){ e.preventDefault(); toggle(); return; }
       if(e.key==="ArrowLeft"){ e.preventDefault(); nudge(e.shiftKey?-10:-2); return; }
@@ -1085,7 +1097,7 @@ function App(){
                                 fontSize:c.kind==="head"?ui.scriptSize+3:ui.scriptSize,
                                 fontStyle:c.kind==="note"?"italic":"normal",
                                 color:c.kind==="note"?"var(--muted)":undefined}}>
-                        <AnnotatedText text={c.text} anns={anns} />
+                        <AnnotatedText text={c.text} anns={anns} titles />
                         {mk.length>0&&(
                           <span style={{display:"inline-flex",gap:4,marginInlineStart:9,verticalAlign:"middle"}}>
                             {mk.map((m)=>{ const t=tagOf(m.tagId);
@@ -1156,7 +1168,8 @@ function App(){
                   onSeek={seek} onSelectLines={(ids)=>setSel(ids)} flash={flash}
                   onUpdate={updMarker} onDelete={delMarker}
                   onAddComment={addComment} onDelComment={delComment}
-                  onAddAnnotation={addAnnotation} onDelAnnotation={delAnnotation} />
+                  onAddAnnotation={addAnnotation} onUpdAnnotation={updAnnotation} onDelAnnotation={delAnnotation}
+                  annotId={annotId} setAnnotId={setAnnotId} />
               ))}
             </div>
           </section>
@@ -1433,7 +1446,8 @@ function DatePicker({ value, onChange, className, style, placeholder, title }){
 }
 
 /* =============== annotated text =============== */
-function AnnotatedText({ text, anns }) {
+// titles: native tooltips (script pane); the shot list draws its own hover notes instead
+function AnnotatedText({ text, anns, selectedId, titles }) {
   if(!anns||!anns.length) return <>{text}</>;
   return <>{segments(text,anns).map((sg,i)=>{
     if(!sg.anns.length) return <React.Fragment key={i}>{sg.text}</React.Fragment>;
@@ -1442,26 +1456,34 @@ function AnnotatedText({ text, anns }) {
     if(a.style==="highlight") st.background=a.color+"55";
     if(a.style==="underline") st.borderBottom="2px solid "+a.color;
     if(a.style==="strike") { st.textDecoration="line-through"; st.textDecorationColor=a.color; }
-    return <span key={i} className="ann" style={st}
-      title={sg.anns.map((x)=>x.note||x.style).join(" · ")}>{sg.text}</span>;
+    const on=selectedId&&sg.anns.some((x)=>x.id===selectedId);
+    return <span key={i} className={"ann"+(on?" ann-sel":"")} style={st} data-annid={on?selectedId:a.id}
+      title={titles?sg.anns.map((x)=>x.note||x.style).join(" · "):undefined}>{sg.text}</span>;
   })}</>;
 }
 
 /* =============== group card =============== */
 function GroupCard(props){
   const { gr,gi,tags,tagOf,fps,cues,cueIndex,expanded,onToggle,onSeek,onSelectLines,flash,
-          onUpdate,onDelete,onAddComment,onDelComment,onAddAnnotation,onDelAnnotation } = props;
+          onUpdate,onDelete,onAddComment,onDelComment,onAddAnnotation,onUpdAnnotation,onDelAnnotation,
+          annotId,setAnnotId } = props;
   const multi=gr.items.length>1;
-  const open=expanded||!multi;
+  const editing=gr.items.find((m)=>m.id===annotId)||null;   // tag in annotation mode, if it's in this folder
+  const open=expanded||!multi||!!editing;
   const cueIds=gr.items[0].cueIds||[];
   const lines=cueIds.map((id)=>cues[cueIndex[id]]).filter(Boolean);
   const span=tc(gr.start,fps)+(gr.end>gr.start+0.05?"  →  "+tc(gr.end,fps):"");
   const allDone=gr.items.every((m)=>(m.status||"todo")==="done");
+  // outside annotation mode show every tag's highlights; inside it, only the tag being annotated
+  const shown=useMemo(()=>editing?(editing.annotations||[]):
+    [].concat(...gr.items.map((m)=>(m.annotations||[]).map((a)=>multi?Object.assign({},a,{_tag:tagOf(m.tagId).label}):a))),
+  [editing,gr.items,multi,tagOf]);
 
   return (
-    <div className="enter" style={{background:"var(--panel)",border:"1px solid var(--line)",
+    <div className={"enter"+(editing?" annotating":"")} style={{background:"var(--panel)",border:"1px solid var(--line)",
       borderInlineStart:"3px solid "+(multi?"var(--accent)":tagOf(gr.items[0].tagId).color),
-      borderRadius:8,padding:11,marginBottom:8,opacity:allDone?.72:1}}>
+      borderRadius:8,padding:editing?16:11,marginBottom:editing?14:8,opacity:allDone&&!editing?.72:1,
+      transition:"padding .16s ease, box-shadow .16s ease"}}>
       <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
         <span className="mono" style={{color:"var(--dim)",fontSize:11,minWidth:15}}>{gi+1}</span>
         <button className="btn btn-xs btn-ghost mono" onClick={()=>onSeek(gr.start)} style={{fontSize:12}}>{span}</button>
@@ -1483,86 +1505,132 @@ function GroupCard(props){
         )}
       </div>
 
+      {editing&&(
+        <div className="fade" style={{display:"flex",alignItems:"center",gap:8,marginTop:10,fontSize:12,color:"var(--accent)"}}>
+          <span className="dot" style={{background:tagOf(editing.tagId).color}} />
+          <span style={{flex:1}}>
+            Annotating <b>{tagOf(editing.tagId).label}</b> — select text to highlight · click a highlight to add a note · Delete removes it
+          </span>
+          <button className="btn btn-xs btn-primary" onClick={()=>setAnnotId(null)}>Done</button>
+        </div>
+      )}
+
       {lines.length>0&&(
-        <AnnotatableLines lines={lines} marker={gr.items[0]} open={open}
-          onAddAnnotation={onAddAnnotation} onDelAnnotation={onDelAnnotation} />
+        <AnnotatableLines lines={lines} anns={shown} editable={!!editing} size={editing?17:15}
+          onAdd={(a)=>editing&&onAddAnnotation(editing,a)}
+          onUpdate={(aid,p)=>editing&&onUpdAnnotation(editing,aid,p)}
+          onDelete={(aid)=>editing&&onDelAnnotation(editing,aid)} />
       )}
 
       {open&&gr.items.map((m)=>(
         <MarkerBlock key={m.id} m={m} tags={tags} tagOf={tagOf} flash={flash===m.id}
           onUpdate={onUpdate} onDelete={onDelete}
           onAddComment={onAddComment} onDelComment={onDelComment}
-          annotations={(m.annotations||[])} onDelAnnotation={onDelAnnotation}
-          cues={cues} cueIndex={cueIndex} />
+          canAnnotate={lines.length>0} annotating={m.id===annotId}
+          onAnnotate={()=>setAnnotId(m.id===annotId?null:m.id)} />
       ))}
     </div>
   );
 }
 
-/* =============== annotatable script lines =============== */
-function AnnotatableLines({ lines, marker, open, onAddAnnotation, onDelAnnotation }){
-  const ref=useRef(null);
-  const [tool,setTool]=useState(null);   // {cueId,s,e,x,y}
-  const [noteFor,setNoteFor]=useState(null);
-  const [noteText,setNoteText]=useState("");
+/* =============== annotatable script lines ===============
+   Acrobat-style: in annotation mode, select text → pick a tool; click an
+   existing highlight → popup for its note / colour / style; Delete removes
+   the picked highlight; hovering shows its note.                          */
+function AnnotatableLines({ lines, anns, editable, size, onAdd, onUpdate, onDelete }){
+  const ref=useRef(null), noteRef=useRef(null);
+  const [tool,setTool]=useState(null);       // pending text selection {cueId,s,e,x,y}
+  const [picked,setPicked]=useState(null);   // highlight picked by a click {id,x,y}
+  const [draft,setDraft]=useState("");
+  const [tip,setTip]=useState(null);         // hover note {id,x,y,text}
+  const byId=useMemo(()=>{ const o={}; anns.forEach((a)=>{ o[a.id]=a; }); return o; },[anns]);
+  const cur=picked?byId[picked.id]:null;
+
+  useEffect(()=>{ if(!editable){ setTool(null); setPicked(null); } },[editable]);
+  useEffect(()=>{ if(picked&&!byId[picked.id]) setPicked(null); },[byId,picked]);
 
   const grab=(e)=>{
-    if(!open) return;
+    if(!editable) return;
     const selection=window.getSelection();
     if(!selection||selection.isCollapsed){ setTool(null); return; }
     let node=selection.anchorNode;
     let holder=node&&node.nodeType===3?node.parentElement:node;
-    while(holder&&!holder.dataset.cueid) holder=holder.parentElement;
-    if(!holder){ setTool(null); return; }
+    while(holder&&!(holder.dataset&&holder.dataset.cueid)) holder=holder.parentElement;
+    if(!holder||!ref.current.contains(holder)){ setTool(null); return; }
     const r=selection.getRangeAt(0);
     const s=offsetIn(holder,r.startContainer,r.startOffset);
     const en=offsetIn(holder,r.endContainer,r.endOffset);
-    if(en-s<1){ setTool(null); return; }
+    if(Math.abs(en-s)<1){ setTool(null); return; }
     const box=ref.current.getBoundingClientRect();
+    setPicked(null);
     setTool({ cueId:holder.dataset.cueid, s:Math.min(s,en), e:Math.max(s,en),
               x:e.clientX-box.left, y:e.clientY-box.top });
   };
-
   const apply=(style,color)=>{
     if(!tool) return;
-    onAddAnnotation(marker,{ cueId:tool.cueId, s:tool.s, e:tool.e, style, color, note:"" });
+    onAdd({ cueId:tool.cueId, s:tool.s, e:tool.e, style, color, note:"" });
     window.getSelection().removeAllRanges();
     setTool(null);
   };
-  const applyWithNote=()=>{
-    if(!tool||!noteText.trim()) return;
-    onAddAnnotation(marker,{ cueId:tool.cueId, s:tool.s, e:tool.e, style:"highlight",
-                             color:HL[0], note:noteText.trim() });
-    window.getSelection().removeAllRanges();
-    setNoteFor(null); setNoteText(""); setTool(null);
+
+  const saveNote=()=>{ if(cur&&draft.trim()!==(cur.note||"")) onUpdate(cur.id,{ note:draft.trim() }); };
+  const letGo=()=>{ saveNote(); setPicked(null); };
+  const pick=(e)=>{
+    if(!editable) return;
+    const sel=window.getSelection(); if(sel&&!sel.isCollapsed) return;
+    const el=e.target.closest?e.target.closest("[data-annid]"):null;
+    if(!el){ if(picked) letGo(); return; }
+    const a=byId[el.dataset.annid]; if(!a) return;
+    if(picked&&picked.id!==a.id) saveNote();
+    const r=el.getBoundingClientRect(), box=ref.current.getBoundingClientRect();
+    setTool(null); setTip(null); setDraft(a.note||"");
+    setPicked({ id:a.id, x:r.left-box.left+r.width/2, y:r.bottom-box.top });
   };
 
-  const anns=(marker.annotations||[]);
+  // while a highlight is picked: Delete / Backspace remove it, Esc lets go, and
+  // typing goes into its note — none of these reach the global shortcuts
+  useEffect(()=>{
+    if(!picked) return;
+    const onKey=(e)=>{
+      const t=e.target;
+      if(t&&(t.tagName==="TEXTAREA"||t.tagName==="INPUT")) return;
+      if(e.key==="Delete"||e.key==="Backspace"){ e.preventDefault(); e.stopPropagation(); onDelete(picked.id); setPicked(null); }
+      else if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); letGo(); }
+      else if(e.key.length===1&&!e.metaKey&&!e.ctrlKey&&!e.altKey){ e.stopPropagation(); if(noteRef.current) noteRef.current.focus(); }
+    };
+    const away=(e)=>{ if(ref.current&&!ref.current.contains(e.target)) letGo(); };
+    window.addEventListener("keydown",onKey,true);
+    document.addEventListener("mousedown",away,true);
+    return ()=>{ window.removeEventListener("keydown",onKey,true); document.removeEventListener("mousedown",away,true); };
+  });
+
+  const hover=(e)=>{
+    const el=e.target.closest?e.target.closest("[data-annid]"):null;
+    const a=el?byId[el.dataset.annid]:null;
+    if(!a){ if(tip) setTip(null); return; }
+    if(tip&&tip.id===a.id) return;
+    const text=a.note?(a._tag?a._tag+" · ":"")+a.note:(editable?"Click to add a note":"");
+    if(!text){ if(tip) setTip(null); return; }
+    const r=el.getBoundingClientRect();
+    setTip({ id:a.id, x:r.left+r.width/2, y:r.top, text });
+  };
+  const pos=(x,w)=>clamp(x-w/2,0,Math.max(0,(ref.current?ref.current.clientWidth:w)-w));
+
   return (
-    <div ref={ref} className="ann-area" style={{position:"relative",marginTop:8}} onMouseUp={grab}>
+    <div ref={ref} className={"ann-area"+(editable?" ann-edit":"")} style={{position:"relative",marginTop:8}}
+      onMouseUp={grab} onClick={pick} onMouseOver={hover} onMouseLeave={()=>setTip(null)}>
       {lines.map((c)=>(
         <div key={c.id} data-cueid={c.id} dir={hasArabic(c.text)?"rtl":"ltr"}
-          style={{fontSize:15,color:"var(--muted)",lineHeight:1.95,
-                  textAlign:"start"}}>
-          <AnnotatedText text={c.text} anns={anns.filter((a)=>a.cueId===c.id)} />
+          style={{fontSize:size||15,color:editable?"var(--text)":"var(--muted)",lineHeight:1.95,
+                  textAlign:"start",transition:"font-size .16s ease, color .16s ease"}}>
+          <AnnotatedText text={c.text} anns={anns.filter((a)=>a.cueId===c.id)} selectedId={picked&&picked.id} />
         </div>
       ))}
 
-      {anns.length>0&&open&&(
-        <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:6}}>
-          {anns.map((a)=>(
-            <span key={a.id} className="chip" title={a.note||a.style}
-              style={{background:a.color+"22",color:a.color,fontSize:10}}>
-              {a.note?a.note.slice(0,26):a.style}
-              <button className="btn btn-xs btn-ghost" style={{color:"inherit",padding:"0 3px"}}
-                onClick={()=>onDelAnnotation(marker,a.id)}>✕</button>
-            </span>
-          ))}
-        </div>
-      )}
-
       {tool&&(
-        <div className="enter" style={{position:"absolute",left:clamp(tool.x-90,0,400),top:tool.y+10,zIndex:30,
+        <div className="enter" onMouseDown={(e)=>e.preventDefault()} onMouseUp={(e)=>e.stopPropagation()}
+          onClick={(e)=>e.stopPropagation()}
+          style={{position:"absolute",left:pos(tool.x,190),top:tool.y+12,zIndex:30,
           background:"var(--raise)",border:"1px solid var(--line2)",borderRadius:8,padding:6,
           display:"flex",gap:5,alignItems:"center",boxShadow:"0 8px 24px rgba(0,0,0,.5)"}}>
           {HL.map((c)=>(
@@ -1573,29 +1641,47 @@ function AnnotatableLines({ lines, marker, open, onAddAnnotation, onDelAnnotatio
             style={{textDecoration:"underline"}}>U</button>
           <button className="btn btn-xs btn-ghost" onClick={()=>apply("strike",HL[3])} title="Strikethrough"
             style={{textDecoration:"line-through"}}>S</button>
-          <button className="btn btn-xs btn-ghost" onClick={()=>setNoteFor(true)} title="Highlight with a note">note</button>
           <button className="btn btn-xs btn-ghost" onClick={()=>setTool(null)} style={{color:"var(--dim)"}}>✕</button>
         </div>
       )}
-      {tool&&noteFor&&(
-        <div className="enter" style={{position:"absolute",left:clamp(tool.x-110,0,380),top:tool.y+52,zIndex:31,
-          background:"var(--raise)",border:"1px solid var(--line2)",borderRadius:8,padding:8,width:250,
+
+      {cur&&(
+        <div className="enter" onMouseUp={(e)=>e.stopPropagation()} onClick={(e)=>e.stopPropagation()}
+          style={{position:"absolute",left:pos(picked.x,270),top:picked.y+6,zIndex:31,width:270,
+          background:"var(--raise)",border:"1px solid var(--line2)",borderRadius:8,padding:8,
           boxShadow:"0 8px 24px rgba(0,0,0,.5)"}}>
-          <input className="field" autoFocus value={noteText} onChange={(e)=>setNoteText(e.target.value)}
-            onKeyDown={(e)=>{ if(e.key==="Enter") applyWithNote(); if(e.key==="Escape"){setNoteFor(null);setTool(null);} }}
-            placeholder="Note on this phrase…" dir="auto" style={{padding:"5px 8px",fontSize:13}} />
-          <div style={{display:"flex",gap:6,marginTop:6}}>
-            <button className="btn btn-xs btn-primary" onClick={applyWithNote}>Add</button>
-            <span style={{color:"var(--dim)",fontSize:11,alignSelf:"center"}}>enter saves</span>
+          <textarea ref={noteRef} className="field" rows={2} value={draft} dir="auto" placeholder="Add a note…"
+            onChange={(e)=>setDraft(e.target.value)}
+            onKeyDown={(e)=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); letGo(); }
+                              if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); setPicked(null); } }}
+            style={{padding:"5px 8px",fontSize:13,lineHeight:1.6,resize:"none"}} />
+          <div style={{display:"flex",gap:5,alignItems:"center",marginTop:6}}>
+            {HL.map((c)=>(
+              <button key={c} title="Colour" onClick={()=>onUpdate(cur.id,{color:c})}
+                style={{width:16,height:16,borderRadius:4,background:c,padding:0,
+                        border:cur.color===c?"2px solid var(--text)":"none"}} />
+            ))}
+            {[["highlight","H"],["underline","U"],["strike","S"]].map(([s,l])=>(
+              <button key={s} className="btn btn-xs btn-ghost" title={s} onClick={()=>onUpdate(cur.id,{style:s})}
+                style={{color:cur.style===s?"var(--accent)":"var(--muted)",
+                        textDecoration:s==="underline"?"underline":s==="strike"?"line-through":"none"}}>{l}</button>
+            ))}
+            <div style={{flex:1}} />
+            <button className="btn btn-xs btn-ghost" style={{color:"var(--bad)"}} title="Delete highlight (Delete key)"
+              onClick={()=>{ onDelete(cur.id); setPicked(null); }}>Delete</button>
           </div>
+          <div style={{fontSize:10,color:"var(--dim)",marginTop:4}}>enter saves · delete key removes the highlight</div>
         </div>
       )}
+
+      {tip&&!(picked&&picked.id===tip.id)&&ReactDOM.createPortal(
+        <div className="ann-tip" dir="auto" style={{left:tip.x,top:tip.y}}>{tip.text}</div>, document.body)}
     </div>
   );
 }
 
 /* =============== marker block =============== */
-function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onDelComment }){
+function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onDelComment,canAnnotate,annotating,onAnnotate }){
   const t=tagOf(m.tagId);
   const [editingNote,setEditingNote]=useState(false);
   const [draft,setDraft]=useState(m.note||"");
@@ -1605,7 +1691,9 @@ function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onDelCo
   const saveNote=()=>{ onUpdate(m.id,{note:draft}); setEditingNote(false); };
 
   return (
-    <div className={flash?"pop":""} style={{marginTop:9,paddingTop:9,borderTop:"1px solid var(--line)"}}>
+    <div className={flash?"pop":""} style={{marginTop:9,paddingTop:9,borderTop:"1px solid var(--line)",
+      borderInlineStart:annotating?"3px solid "+t.color:"0 solid transparent",paddingInlineStart:annotating?9:0,
+      background:annotating?t.color+"10":"transparent",borderRadius:annotating?6:0}}>
       <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
         <Dropdown className="btn btn-xs btn-ghost" value={m.tagId} title="Tag"
           options={tags.map((x)=>({ value:x.id, label:x.label, color:x.color }))}
@@ -1619,6 +1707,12 @@ function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onDelCo
           onChange={(v)=>onUpdate(m.id,{due:v})}
           style={{fontSize:11,color:m.due&&m.due<today()&&(m.status||"todo")!=="done"?"var(--bad)":"var(--muted)"}} />
         <div style={{flex:1}} />
+        {canAnnotate&&(
+          <button className={"btn btn-xs "+(annotating?"btn-primary":"btn-ghost")} onClick={onAnnotate}
+            title="Highlight and annotate the script for this tag" style={annotating?undefined:{color:"var(--muted)"}}>
+            {annotating?"Done":"⤢ Annotate"}
+          </button>
+        )}
         <button className="btn btn-xs btn-ghost" style={{color:"var(--muted)"}}
           onClick={()=>{setDraft(m.note||"");setEditingNote((v)=>!v);}}>
           {editingNote?"cancel":m.note?"edit":"brief"}
