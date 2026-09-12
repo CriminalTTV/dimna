@@ -697,6 +697,8 @@ function App(){
   const [cloudOpen,setCloudOpen]=useState(false);
   const [syncing,setSyncing]=useState(false);
   const [autoUpload,setAutoUpload]=useState(()=>localStorage.getItem("dimna:autoup")!=="0");
+  const [autoFetch,setAutoFetch]=useState(()=>localStorage.getItem("dimna:autodl")!=="0");
+  const syncedFor=useRef(null), fetchedFor=useRef(null);
   const audioFileRef=useRef(null);
   const [audioUploaded,setAudioUploaded]=useState(false);
 
@@ -748,7 +750,9 @@ function App(){
   const pruneAudio=useCallback(async(rows)=>{
     if(!sb||!user) return;
     const cutoff=Date.now()-AUDIO_TTL_DAYS*86400000;
-    const stale=(rows||[]).filter((r)=>r.audio_path&&new Date(r.updated_at||0).getTime()<cutoff);
+    // staleness is the project's own last edit, not the last upload (a sync touches every row)
+    const lastEdit=(r)=>(r.data&&r.data.updated)||new Date(r.updated_at||0).getTime();
+    const stale=(rows||[]).filter((r)=>r.audio_path&&lastEdit(r)<cutoff);
     if(!stale.length) return;
     try{
       await sb.storage.from("audio").remove(stale.map((r)=>r.audio_path));
@@ -757,42 +761,80 @@ function App(){
     }catch(e){}
   },[sb,user]);
 
-  const pullCloud=useCallback(async()=>{
-    if(!sb||!user) return;
-    setSyncing(true);
-    try{
-      const { data,error }=await sb.from("projects").select("*");
-      if(error) throw error;
-      const all=readAll();
-      (data||[]).forEach((row)=>{
-        const local=all[row.id];
-        const remote=migrateProject(Object.assign({},row.data,{ id:row.id,
-          cloudAudio:row.audio_path||"", cloudAudioName:row.audio_name||"" }));
-        if(!local||(remote.updated||0)>(local.updated||0)) all[row.id]=remote;
-        else if(local) all[row.id]=Object.assign({},local,{cloudAudio:row.audio_path||"",cloudAudioName:row.audio_name||""});
-      });
-      writeAll(all); setProjects(all);
-      const cur=all[proj.id]; if(cur&&(cur.updated||0)>=(proj.updated||0)) setProjRaw(cur);
-      say("Synced "+((data||[]).length)+" project(s) from the cloud.");
-      await pruneAudio(data||[]);
-    }catch(e){ say("Sync failed: "+(e.message||String(e))); }
-    setSyncing(false);
-  },[sb,user,proj,pruneAudio]);
-
   const pushProject=useCallback(async(p)=>{
     if(!sb||!user) return;
     const clean=Object.assign({},p);
     delete clean.cloudAudio; delete clean.cloudAudioName;
     const { error }=await sb.from("projects").upsert({
-      id:p.id, user_id:user.id, name:p.name, data:clean, updated_at:new Date().toISOString() });
+      id:p.id, user_id:user.id, name:p.name, data:clean,
+      updated_at:new Date(p.updated||Date.now()).toISOString() });
     if(error) throw error;
   },[sb,user]);
+
+  /* Two-way sync. Projects used to reach the cloud only while they were open and being
+     edited, so a project made on one device never appeared on another. This uploads every
+     local project the cloud is missing or holds an older copy of, takes down anything newer,
+     and says what actually happened instead of failing quietly. */
+  const syncCloud=useCallback(async(quiet)=>{
+    if(!sb||!user) return;
+    setSyncing(true);
+    try{
+      const { data,error }=await sb.from("projects").select("*");
+      if(error) throw error;
+      const rows=data||[], all=readAll(), remoteById={};
+      rows.forEach((r)=>{ remoteById[r.id]=r; });
+      let pulled=0;
+      rows.forEach((row)=>{
+        const local=all[row.id];
+        const remote=migrateProject(Object.assign({},row.data,{ id:row.id,
+          cloudAudio:row.audio_path||"", cloudAudioName:row.audio_name||"" }));
+        if(!local||(remote.updated||0)>(local.updated||0)){ all[row.id]=remote; pulled++; }
+        else all[row.id]=Object.assign({},local,{ cloudAudio:row.audio_path||"", cloudAudioName:row.audio_name||"" });
+      });
+      const mine=Object.values(all).filter((p)=>{
+        const r=remoteById[p.id];
+        return p&&p.id&&(!r||(p.updated||0)>((r.data&&r.data.updated)||0));
+      });
+      let pushed=0; const failed=[];
+      for(const p of mine){
+        try{ await pushProject(p); pushed++; }
+        catch(e){ failed.push((p.name||"project")+": "+(e.message||e)); }
+      }
+      writeAll(all); setProjects(all);
+      const cur=all[proj.id]; if(cur&&(cur.updated||0)>(proj.updated||0)) setProjRaw(cur);
+      if(failed.length) say("Sync incomplete — "+failed[0]);
+      else if(!quiet) say("Synced · "+pushed+" up · "+pulled+" down · "+rows.length+" in the cloud");
+      await pruneAudio(rows);
+    }catch(e){ say("Sync failed: "+(e.message||String(e))); }
+    setSyncing(false);
+  },[sb,user,proj,pruneAudio,pushProject]);
+
+  const signOut=async()=>{
+    try{ if(sb) await sb.auth.signOut(); }catch(e){}
+    setUser(null); syncedFor.current=null; setCloudOpen(false); say("Signed out.");
+  };
 
   useEffect(()=>{
     if(!sb||!user||!ready) return;
     const t=setTimeout(()=>{ pushProject(proj).catch((e)=>say("Cloud save failed: "+(e.message||e))); },1800);
     return ()=>clearTimeout(t);
   },[proj,sb,user,ready,pushProject]);
+
+  // one full sync per session: on sign-in, and on a reload that still has a session
+  useEffect(()=>{
+    if(!sb||!user||!ready||syncedFor.current===user.id) return;
+    syncedFor.current=user.id;
+    const t=setTimeout(()=>syncCloud(false),600);
+    return ()=>clearTimeout(t);
+  },[sb,user,ready,syncCloud]);
+
+  // item 2: a project whose audio lives in the cloud gets it back by itself, once per project
+  useEffect(()=>{
+    if(!sb||!user||!ready||!autoFetch) return;
+    if(audioUrl||waveBusy||!proj.cloudAudio||fetchedFor.current===proj.id) return;
+    fetchedFor.current=proj.id;
+    fetchCloudAudio(proj);
+  },[sb,user,ready,autoFetch,audioUrl,waveBusy,proj.id,proj.cloudAudio,fetchCloudAudio]);
 
   const uploadAudio=useCallback(async(file,p)=>{
     if(!sb||!user||!file) return;
@@ -998,9 +1040,16 @@ function App(){
   };
   // adding / removing a highlight is undoable; editing its note, colour or style is not
   const withAnns=(mid,fn)=>markers.map((x)=>x.id===mid?Object.assign({},x,{annotations:fn(x.annotations||[])}):x);
-  const addAnnotation=(m,a)=>commit({ markers:withAnns(m.id,(l)=>l.concat(Object.assign({id:uid()},a))) });
-  const updAnnotation=(m,aid,p)=>patch({ markers:withAnns(m.id,(l)=>l.map((a)=>a.id===aid?Object.assign({},a,p):a)) });
-  const delAnnotation=(m,aid)=>{ commit({ markers:withAnns(m.id,(l)=>l.filter((a)=>a.id!==aid)) }); say("Highlight deleted",true); };
+  // a highlight may be several parts sharing a `group` (one per line it crosses):
+  // a note, colour, style change or delete applies to the whole group
+  const addAnnotation=(m,a)=>commit({ markers:withAnns(m.id,(l)=>
+    l.concat((Array.isArray(a)?a:[a]).map((x)=>Object.assign({ id:uid() },x)))) });
+  const sameHighlight=(l,aid)=>{ const t=l.find((a)=>a.id===aid), g=t&&t.group;
+    return (a)=>a.id===aid||(!!g&&a.group===g); };
+  const updAnnotation=(m,aid,p)=>patch({ markers:withAnns(m.id,(l)=>{ const hit=sameHighlight(l,aid);
+    return l.map((a)=>hit(a)?Object.assign({},a,p):a); }) });
+  const delAnnotation=(m,aid)=>{ commit({ markers:withAnns(m.id,(l)=>{ const hit=sameHighlight(l,aid);
+    return l.filter((a)=>!hit(a)); }) }); say("Highlight deleted",true); };
 
   // item 7: detach / attach script lines on one tag. Line tags just follow their lines; region tags
   // keep their dragged span, trimmed when an edge line goes and stretched to cover lines added.
@@ -1371,7 +1420,13 @@ function App(){
             { head:"Project" },
             { label:"Projects", onClick:()=>setProjOpen(true) },
             { label:"Tags", onClick:()=>setTagsOpen(true) },
-            { label:syncing?"Syncing…":user?"Cloud ✓":"Sign in & sync", onClick:()=>setCloudOpen(true) },
+            ...(user?[
+              { label:syncing?"Syncing…":"Sync now", onClick:()=>syncCloud() },
+              { label:"Cloud settings", onClick:()=>setCloudOpen(true) },
+              { label:"Sign out", onClick:signOut },
+            ]:[
+              { label:"Sign in & sync", onClick:()=>setCloudOpen(true) },
+            ]),
             { head:"Import" }, ...importItems.filter((it)=>!it.sep),
             { head:"Export" }, ...exportItems.filter((it)=>!it.sep),
             { sep:true },
@@ -1416,11 +1471,21 @@ function App(){
           label={<>Import <span className="dd-caret">▾</span></>} items={importItems} />
         <MenuButton className="btn btn-sm" title="Export for animators, editors or backup"
           label={<>Export <span className="dd-caret">▾</span></>} items={exportItems} />
-        <button className="btn btn-sm" onClick={()=>setCloudOpen(true)}
-          title={user?"Signed in as "+user.email:"Set up cloud sync"}
-          style={{borderColor:user?"var(--ok)":"var(--line)",color:user?"var(--ok)":"var(--muted)"}}>
-          {syncing?"Syncing…":user?"Cloud ✓":"Sign in"}
-        </button>
+        {user?(
+          <MenuButton className="btn btn-sm" title={"Signed in as "+user.email}
+            style={{borderColor:"var(--ok)",color:"var(--ok)"}}
+            label={<>{syncing?"Syncing…":"Cloud ✓"} <span className="dd-caret">▾</span></>}
+            items={[
+              { head:user.email },
+              { label:"Sync now", hint:"↑↓", onClick:()=>syncCloud() },
+              { label:"Cloud settings", onClick:()=>setCloudOpen(true) },
+              { sep:true },
+              { label:"Sign out", onClick:signOut },
+            ]} />
+        ):(
+          <button className="btn btn-sm" onClick={()=>setCloudOpen(true)} title="Set up cloud sync"
+            style={{borderColor:"var(--line)",color:"var(--muted)"}}>Sign in</button>
+        )}
         <button className="btn btn-sm btn-ghost" onClick={()=>setHelpOpen(true)} title="Formats & shortcuts">?</button>
       </header>
       )}
@@ -1755,20 +1820,21 @@ function App(){
           markers:removed.length?markers.filter((m)=>removed.indexOf(m.tagId)===-1):markers})} />}
       {projOpen&&<ProjectModal projects={projects} current={proj} onClose={()=>setProjOpen(false)}
         onPatch={patch}
-        onOpen={(p)=>{setProjRaw(p);setProjOpen(false);setSel([]);setWave(null);setAudioUrl(null);
-                      setAudioUploaded(false); if(user&&p.cloudAudio) setTimeout(()=>fetchCloudAudio(p),250);}}
+        onOpen={(p)=>{setProjRaw(p);setProjOpen(false);setSel([]);setAnnotId(null);setWave(null);setAudioUrl(null);
+                      setAudioUploaded(false);}}
         onNew={()=>{const p=blankProject("Untitled "+(Object.keys(projects).length+1));
                     setProjRaw(p);setProjOpen(false);setSel([]);setWave(null);setAudioUrl(null);}}
         onDuplicate={()=>{setProjRaw(Object.assign({},proj,{id:uid(),name:proj.name+" copy"}));setProjOpen(false);}}
         onDelete={(id)=>{const all=readAll();delete all[id];writeAll(all);setProjects(all);
                          if(id===proj.id) setProjRaw(blankProject("Untitled"));}}
         onExport={exportProject} onImportClick={()=>jsonRef.current&&jsonRef.current.click()} />}
-      {cloudOpen&&<CloudModal cfg={cloudCfg} sb={sb} user={user} autoUpload={autoUpload}
+      {cloudOpen&&<CloudModal cfg={cloudCfg} sb={sb} user={user} autoUpload={autoUpload} autoFetch={autoFetch}
         onAuto={(v)=>{ setAutoUpload(v); localStorage.setItem("dimna:autoup",v?"1":"0"); }}
+        onAutoFetch={(v)=>{ setAutoFetch(v); localStorage.setItem("dimna:autodl",v?"1":"0"); }}
         onSaveCfg={(c)=>{ writeCloudCfg(c); setCloudCfg(c); }}
-        onSignedIn={()=>{ setCloudOpen(false); setTimeout(()=>pullCloud(),400); }}
-        onSignOut={async()=>{ if(sb) await sb.auth.signOut(); setUser(null); say("Signed out."); }}
-        onSync={()=>{ setCloudOpen(false); pullCloud(); }}
+        onSignedIn={()=>setCloudOpen(false)}
+        onSignOut={signOut}
+        onSync={()=>{ setCloudOpen(false); syncCloud(); }}
         onClose={()=>setCloudOpen(false)} />}
       {helpOpen&&<HelpModal onClose={()=>setHelpOpen(false)} />}
 
@@ -1928,7 +1994,7 @@ function MenuButton({ label, items, className, title, style }){
 
 /* =============== annotated text =============== */
 // titles: native tooltips (script pane); the shot list draws its own hover notes instead
-function AnnotatedText({ text, anns, selectedId, titles }) {
+function AnnotatedText({ text, anns, selectedId, selGroup, titles }) {
   if(!anns||!anns.length) return <>{text}</>;
   return <>{segments(text,anns).map((sg,i)=>{
     if(!sg.anns.length) return <React.Fragment key={i}>{sg.text}</React.Fragment>;
@@ -1937,7 +2003,8 @@ function AnnotatedText({ text, anns, selectedId, titles }) {
     if(a.style==="highlight") st.background=a.color+"55";
     if(a.style==="underline") st.borderBottom="2px solid "+a.color;
     if(a.style==="strike") { st.textDecoration="line-through"; st.textDecorationColor=a.color; }
-    const on=selectedId&&sg.anns.some((x)=>x.id===selectedId);
+    // a highlight that runs across lines is stored as one part per line, tied by `group`
+    const on=sg.anns.some((x)=>x.id===selectedId||(selGroup&&x.group===selGroup));
     return <span key={i} className={"ann"+(on?" ann-sel":"")} style={st} data-annid={on?selectedId:a.id}
       title={titles?sg.anns.map((x)=>x.note||x.style).join(" · "):undefined}>{sg.text}</span>;
   })}</>;
@@ -2096,21 +2163,26 @@ function AnnotatableLines({ lines, anns, editable, size, onAdd, onUpdate, onDele
   const grab=(e)=>{
     if(!editable||!ref.current) return;
     const selection=window.getSelection();
-    if(!selection||selection.isCollapsed){ setTool(null); return; }
-    let node=selection.anchorNode;
-    let holder=node&&node.nodeType===3?node.parentElement:node;
-    while(holder&&!(holder.dataset&&holder.dataset.cueid)) holder=holder.parentElement;
-    if(!holder||!ref.current.contains(holder)){ setTool(null); return; }
+    if(!selection||selection.isCollapsed||!selection.rangeCount){ setTool(null); return; }
     const r=selection.getRangeAt(0);
-    const s=offsetIn(holder,r.startContainer,r.startOffset);
-    const en=offsetIn(holder,r.endContainer,r.endOffset);
-    if(Math.abs(en-s)<1){ setTool(null); return; }
+    if(!ref.current.contains(r.commonAncestorContainer)){ setTool(null); return; }
+    // a selection can run across several lines — one part per line it touches
+    const parts=[];
+    ref.current.querySelectorAll("[data-cueid]").forEach((el)=>{
+      if(!r.intersectsNode(el)) return;
+      const len=el.textContent.length;
+      const s=el.contains(r.startContainer)?offsetIn(el,r.startContainer,r.startOffset):0;
+      const en=el.contains(r.endContainer)?offsetIn(el,r.endContainer,r.endOffset):len;
+      const a=clamp(Math.min(s,en),0,len), b=clamp(Math.max(s,en),0,len);
+      if(b-a>=1) parts.push({ cueId:el.dataset.cueid, s:a, e:b });
+    });
+    if(!parts.length){ setTool(null); return; }
     const box=ref.current.getBoundingClientRect(), rr=r.getBoundingClientRect();
     const x=e&&e.clientX!=null?e.clientX-box.left:rr.left+rr.width/2-box.left;
     const y=e&&e.clientY!=null?e.clientY-box.top:rr.bottom-box.top;
-    const cueId=holder.dataset.cueid, s0=Math.min(s,en), e0=Math.max(s,en);
+    const key=parts.map((p)=>p.cueId+":"+p.s+"-"+p.e).join("|");
     setPicked(null);
-    setTool((prev)=>prev&&prev.cueId===cueId&&prev.s===s0&&prev.e===e0?prev:{ cueId, s:s0, e:e0, x, y });
+    setTool((prev)=>prev&&prev.key===key?prev:{ parts, key, x, y });
   };
   const grabRef=useRef(null); grabRef.current=grab;
   useEffect(()=>{
@@ -2122,7 +2194,8 @@ function AnnotatableLines({ lines, anns, editable, size, onAdd, onUpdate, onDele
   },[editable]);
   const apply=(style,color)=>{
     if(!tool) return;
-    onAdd({ cueId:tool.cueId, s:tool.s, e:tool.e, style, color, note:"" });
+    const group=tool.parts.length>1?uid():null;   // one highlight, several lines
+    onAdd(tool.parts.map((p)=>Object.assign({ style, color, note:"" }, p, group?{ group }:{})));
     window.getSelection().removeAllRanges();
     setTool(null);
   };
@@ -2178,7 +2251,8 @@ function AnnotatableLines({ lines, anns, editable, size, onAdd, onUpdate, onDele
           <div data-cueid={c.id} dir={hasArabic(c.text)?"rtl":"ltr"}
             style={{flex:1,fontSize:size||15,color:editable?"var(--text)":"var(--muted)",lineHeight:1.95,
                     textAlign:"start",transition:"font-size .16s ease, color .16s ease"}}>
-            <AnnotatedText text={c.text} anns={anns.filter((a)=>a.cueId===c.id)} selectedId={picked&&picked.id} />
+              <AnnotatedText text={c.text} anns={anns.filter((a)=>a.cueId===c.id)}
+              selectedId={picked&&picked.id} selGroup={cur&&cur.group} />
           </div>
           {onRemoveLine&&(
             <button className="btn btn-xs btn-ghost line-x" title={removeLabel||"Remove this line from the tag"}
@@ -2863,7 +2937,7 @@ function HelpModal({ onClose }){
 }
 
 /* =============== cloud / login =============== */
-function CloudModal({ cfg,sb,user,autoUpload,onAuto,onSaveCfg,onSignedIn,onSignOut,onSync,onClose }){
+function CloudModal({ cfg,sb,user,autoUpload,autoFetch,onAuto,onAutoFetch,onSaveCfg,onSignedIn,onSignOut,onSync,onClose }){
   const [url,setUrl]=useState((cfg&&cfg.url)||"");
   const [key,setKey]=useState((cfg&&cfg.key)||"");
   const [email,setEmail]=useState("");
@@ -2905,14 +2979,18 @@ function CloudModal({ cfg,sb,user,autoUpload,onAuto,onSaveCfg,onSignedIn,onSignO
               <p style={{marginTop:0,fontSize:14}}>
                 Signed in as <b>{user.email}</b>
               </p>
-              <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"var(--muted)",margin:"14px 0"}}>
+              <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"var(--muted)",margin:"14px 0 8px"}}>
                 <input type="checkbox" checked={autoUpload} onChange={(e)=>onAuto(e.target.checked)} />
                 Upload audio automatically when I load a file
               </label>
+              <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"var(--muted)",margin:"0 0 14px"}}>
+                <input type="checkbox" checked={autoFetch} onChange={(e)=>onAutoFetch(e.target.checked)} />
+                Download the audio automatically when a project opens
+              </label>
               <p style={{fontSize:12,color:"var(--dim)",lineHeight:1.75}}>
-                Projects save to the cloud a couple of seconds after every change. Audio for any project
-                you haven't touched in 14 days is deleted automatically the next time you sync — the
-                project itself is never deleted.
+                Every project in this browser is uploaded when you sign in and after each change, and
+                anything newer in the cloud comes down. Audio for a project you haven't touched in 14
+                days is deleted on the next sync — the project itself is never deleted.
               </p>
               <div style={{display:"flex",gap:8,marginTop:16,flexWrap:"wrap"}}>
                 <button className="btn btn-primary" onClick={onSync}>Sync now</button>
