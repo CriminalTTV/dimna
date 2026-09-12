@@ -1843,7 +1843,9 @@ function App(){
       )}
 
       {/* ---------- transport ---------- */}
-      <footer style={{flex:"none",background:"var(--panel)",borderTop:"1px solid var(--line)"}}>
+      {/* kept mounted on Home so audio keeps playing, just out of the way */}
+      <footer style={{flex:"none",background:"var(--panel)",borderTop:"1px solid var(--line)",
+                      display:view==="dashboard"?"none":undefined}}>
         {!isPhone&&<div className="grip-h" onPointerDown={startWaveResize} title="Drag to resize the waveform" />}
         <div ref={waveWrap} dir="ltr" onPointerDown={waveDown} onWheel={waveWheel}
           onMouseMove={(e)=>{ const r=e.currentTarget.getBoundingClientRect(); setHoverX({x:e.clientX-r.left,t:waveT(e.clientX)}); }}

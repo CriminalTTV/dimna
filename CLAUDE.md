@@ -72,19 +72,32 @@ project" below and FIXES.md → Later).
   for the rest of the transport, 64px waveform, full-screen modals. Pointer
   events drive every drag, fields are 16px on touch (stops iOS zoom), 100dvh.
 - Resizable split pane, waveform height, script font size.
-- Cloud: Supabase auth (email/password), project sync, audio storage.
-  Audio for projects untouched 14 days is deleted on sync.
+- Cloud: Supabase auth (email/password). `syncCloud()` is two-way — it uploads
+  every local project the cloud lacks or holds older, pulls anything newer, and
+  runs on sign-in, on a reload with a session, and from Sync now. The Cloud
+  button is a menu (account, Sync now, settings, Sign out). Audio uploads on
+  load and comes back automatically when a project opens (both switchable);
+  audio for projects untouched 14 days is deleted on sync, measured from the
+  project's own last edit.
+- Home (dashboard): projects with progress, what's due and in progress, an
+  activity log, and settings (cloud, default fps for new projects, export all
+  as a bundle, import, delete local data). The logo opens it.
+- Every tag exports on its own (`exportTagText`): timecode, duration, status,
+  brief, script lines, highlights with notes, comments — clipboard or .txt.
+- Each shot shows how long it runs (`durText`) on folders, tags, tiles, Board
+  cards and in the brief export.
 
 ### Data model
 
 ```
 project = {
-  id, name, updated, schemaVersion:2, fps, offset, audioName,
+  id, name, updated, schemaVersion:3, fps, offset, audioName,
+  activity:[{id,at,text}],        // newest first, capped at 60 (Home → Activity)
   startDate, dueDate,
   cues:    [{ id, kind:'line'|'head'|'note', level, text, start, end, origEnd }],
   markers: [{ id, tagId, cueIds:[], start, end,
               comments:[{id,text,at,brief?,edited?}],
-              annotations:[{id,cueId,s,e,style,color,note, orphan?,text?}],
+              annotations:[{id,cueId,s,e,style,color,note, group?, orphan?,text?}],
               status, due,
               note }],               // legacy, always "" after migration
   tags:    [{ id, label, color }],
@@ -97,7 +110,12 @@ project = {
 Supabase pulls, .json import and drag-drop — goes through `migrateProject()`.
 It must stay safe to run repeatedly: each marker is checked on its own
 (an old tab that hasn't reloaded can keep writing old-shape data). v2 moved
-`marker.note` into `comments` as the first comment flagged `brief:true`.
+`marker.note` into `comments` as the first comment flagged `brief:true`;
+v3 added `project.activity`.
+
+A highlight that crosses lines is stored as one annotation per line sharing a
+`group` id; note, colour, style and delete apply to the whole group, and
+`highlightList()` puts the parts back together for exports.
 Never drop fields you don't recognise. Bump `SCHEMA` and extend
 `migrateMarker` / `migrateProject` for any future shape change.
 

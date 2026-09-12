@@ -258,6 +258,26 @@ Not urgent. Don't start these without asking.
 
 ---
 
+## Round 2 — reported 12 Sep 2026
+
+Built and tested locally on branch `round-2`; waiting for Hussain to confirm
+in the browser before these count as done.
+
+1. Highlighting across several lines — fixed (one part per line, tied by `group`).
+2. Audio didn't load on open — fixed (auto-download once per project, switchable).
+3. No sign out button — fixed (Cloud menu in the header and the phone menu).
+4. Projects not reaching other devices — fixed (`syncCloud()` uploads every local
+   project, not only the open one; runs on sign-in and from Sync now).
+5. How long each tag runs — added everywhere a shot is listed.
+6. Bringing the generation tool in — **deferred, Hussain said "after we will do this".**
+   Decide first whether dimna calls a generation API itself, imports an existing
+   tool, or only writes prompt lists.
+7. Export one tag on its own — added (clipboard or .txt, clear plain-text layout).
+8. Logo opens Home — added.
+9. Dashboard with settings — added (Projects, Due & next, Activity, Settings).
+10. Backups — a zip in `C:\Users\user\dimna-backups` and a git tag before and
+    after each change.
+
 ## Done
 
 Move finished items here with the date. Don't delete them — if something
