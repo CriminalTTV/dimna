@@ -132,6 +132,8 @@
   .progress-bar { width:84px; height:5px; border-radius:3px; background:var(--line); overflow:hidden; }
   .progress-bar > div { height:100%; background:var(--ok); border-radius:3px; transition:width .3s ease; }
   .btn-group { display:inline-flex; gap:2px; }
+  .logo-btn { padding:3px 5px; border:1px solid transparent; min-height:0; }
+  .logo-btn:hover { border-color:var(--line); background:var(--panel2); }
   .pop-sep { height:1px; background:var(--line); margin:4px 2px; }
   .pop-head { font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); padding:6px 10px 2px; }
   .pop-hint { font-size:11px; color:var(--dim); margin-inline-start:16px; }
@@ -143,6 +145,26 @@
   .fcount { color:var(--dim); font-size:10px; }
   .dur { font-size:11px; color:var(--muted); background:var(--panel2); border:1px solid var(--line);
          border-radius:999px; padding:1px 8px; white-space:nowrap; }
+
+  /* dashboard (items 8 & 9) */
+  .dash { flex:1; overflow-y:auto; padding:18px 20px 40px; }
+  .dash-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .dash-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(255px,1fr)); gap:10px; }
+  .pcard { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 13px;
+           display:flex; flex-direction:column; gap:8px; }
+  .pcard.on { border-color:var(--accent); }
+  .pcard h3 { margin:0; font-size:14px; font-weight:600; }
+  .pmeta { font-size:11px; color:var(--dim); display:flex; gap:6px; flex-wrap:wrap; }
+  .prow { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .dash-sec { margin-top:18px; max-width:900px; }
+  .dash-sec h3 { font-size:11px; letter-spacing:.09em; text-transform:uppercase; color:var(--dim); margin:0 0 8px; }
+  .drow { display:flex; align-items:center; gap:9px; padding:8px 10px; border:1px solid var(--line);
+          border-radius:8px; background:var(--panel); margin-bottom:6px; font-size:13px; }
+  .drow.late { border-color:rgba(217,142,122,.5); }
+  .setting { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  .setting:last-child { border-bottom:0; }
+  .setting .lbl { flex:1; }
+  .dash-empty { color:var(--dim); font-size:13px; padding:8px 0; }
   .fsep { width:1px; height:16px; background:var(--line); margin:0 3px; }
   .gcard.live { border-color:rgba(214,163,84,.6); box-shadow:0 0 0 1px rgba(214,163,84,.22); }
   .live-dot { color:var(--warn); font-size:10px; animation:blink 1.2s ease-in-out infinite; }
@@ -480,6 +502,62 @@ function planReanchor(markers, oldCues, oldIndex, newCues, offset, rangeOf){
            counts:{ clean:n("clean"), ambiguous:n("ambiguous"), unmatched:n("unmatched"), kept:n("kept") } };
 }
 
+/* ---------------- one shot, written out for an animator (item 7) ----------------
+   Parts of a highlight that crossed lines are put back together as one entry. */
+function highlightList(m, cues, cueIndex){
+  const by=new Map();
+  (m.annotations||[]).forEach((a)=>{
+    if(a.orphan) return;
+    const c=cues[cueIndex[a.cueId]]; if(!c) return;
+    const k=a.group||a.id;
+    const g=by.get(k)||{ parts:[], note:a.note||"", style:a.style };
+    g.parts.push({ text:c.text.slice(a.s,a.e), at:c.start });
+    if(!g.note&&a.note) g.note=a.note;
+    by.set(k,g);
+  });
+  return Array.from(by.values()).map((g)=>{
+    g.parts.sort((x,y)=>(x.at||0)-(y.at||0));
+    return { phrase:g.parts.map((p)=>p.text).join(" … "), note:g.note, style:g.style,
+             at:g.parts.length?g.parts[0].at:null };
+  }).sort((a,b)=>(a.at||0)-(b.at||0));
+}
+function exportTagText(m, ctx, shotNo){
+  const { proj, tagOf, fps, cues, cueIndex, range }=ctx;
+  const r=range(m), t=tagOf(m.tagId), off=proj.offset||0;
+  const st=(STATUS.find((s)=>s.id===(m.status||"todo"))||STATUS[0]).label;
+  const field=(k)=>(k+"           ").slice(0,11);
+  const L=[];
+  L.push("SHOT "+shotNo+"  ·  "+t.label);
+  L.push("=".repeat(54));
+  L.push(field("Project")+proj.name);
+  L.push(field("Tag")+t.label);
+  L.push(field("Time")+tc(r.start,fps)+"  →  "+tc(r.end,fps)+"   ("+durText(r.end-r.start)+")");
+  L.push(field("Status")+st+(m.due?"   ·   due "+m.due:""));
+  L.push(field("Format")+fps+" fps"+(proj.audioName?"   ·   "+proj.audioName:""));
+  L.push("","BRIEF","-----",briefText(m)||"(nothing written yet)");
+  const lines=(m.cueIds||[]).map((id)=>cues[cueIndex[id]]).filter(Boolean);
+  if(lines.length){
+    L.push("","SCRIPT","------");
+    lines.forEach((c)=>L.push("["+clock((c.start||0)+off)+"]  "+c.text));
+  }
+  const hl=highlightList(m,cues,cueIndex);
+  if(hl.length){
+    L.push("","HIGHLIGHTED IN THE SCRIPT","-------------------------");
+    hl.forEach((h,i)=>{
+      L.push((i+1)+". “"+h.phrase+"”"+(h.at!=null?"   ("+clock(h.at+off)+")":""));
+      L.push("   "+(h.note?"note: "+h.note:"("+h.style+", no note)"));
+    });
+  }
+  const rest=(m.comments||[]).filter((c)=>!c.brief);
+  if(rest.length){
+    L.push("","COMMENTS","--------");
+    rest.forEach((c)=>L.push("- "+String(c.text).replace(/\n/g,"\n  ")+
+      (c.at?"   ("+new Date(c.at).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})+")":"")));
+  }
+  L.push("","— دمنة · exported "+localISO(new Date())+" —");
+  return L.join("\n");
+}
+
 /* ---------------- storage ---------------- */
 const LS="dimna:projects", LAST="dimna:last";
 const readAll = () => {
@@ -488,9 +566,9 @@ const readAll = () => {
   return o;
 };
 const writeAll = (o) => { try { localStorage.setItem(LS, JSON.stringify(o)); return true; } catch(e){ return false; } };
-function blankProject(name){
-  return { id:uid(), name:name||"Untitled", cues:[], markers:[],
-           tags:DEFAULT_TAGS.map((t)=>Object.assign({},t)), fps:25, offset:0, audioName:"",
+function blankProject(name,fps){
+  return { id:uid(), name:name||"Untitled", cues:[], markers:[], activity:[],
+           tags:DEFAULT_TAGS.map((t)=>Object.assign({},t)), fps:fps||25, offset:0, audioName:"",
            startDate:"", dueDate:"", schemaVersion:SCHEMA,
            ui:{ scriptSize:16, waveH:96, splitPct:58, shotMode:"comfortable" }, updated:Date.now() };
 }
@@ -501,7 +579,7 @@ function blankProject(name){
    times: each marker is checked on its own, because an old tab that hasn't
    reloaded can keep saving old-shape data. Unknown fields are carried through.
    v2: the separate brief (marker.note) became the first comment, flagged brief. */
-const SCHEMA=2;
+const SCHEMA=3;   // v3 added project.activity, the log the dashboard reads
 function migrateMarker(m){
   const x=Object.assign({},m);
   x.cueIds=Array.isArray(x.cueIds)?x.cueIds:[];
@@ -524,6 +602,7 @@ function migrateProject(p){
   x.markers=(Array.isArray(x.markers)?x.markers:[]).map(migrateMarker);
   x.tags=Array.isArray(x.tags)&&x.tags.length?x.tags:DEFAULT_TAGS.map((t)=>Object.assign({},t));
   x.ui=Object.assign({ scriptSize:16, waveH:96, splitPct:58, shotMode:"comfortable" }, x.ui||{});
+  x.activity=Array.isArray(x.activity)?x.activity:[];
   x.schemaVersion=SCHEMA;
   return x;
 }
@@ -706,6 +785,8 @@ function App(){
   const [syncing,setSyncing]=useState(false);
   const [autoUpload,setAutoUpload]=useState(()=>localStorage.getItem("dimna:autoup")!=="0");
   const [autoFetch,setAutoFetch]=useState(()=>localStorage.getItem("dimna:autodl")!=="0");
+  const [prefs,setPrefsRaw]=useState(()=>{ try{ return JSON.parse(localStorage.getItem("dimna:prefs")||"{}")||{}; }catch(e){ return {}; } });
+  const setPrefs=(p)=>{ const n=Object.assign({},prefs,p); setPrefsRaw(n); localStorage.setItem("dimna:prefs",JSON.stringify(n)); };
   const syncedFor=useRef(null), fetchedFor=useRef(null);
   const audioFileRef=useRef(null);
   const [audioUploaded,setAudioUploaded]=useState(false);
@@ -727,6 +808,20 @@ function App(){
   const redo=()=>{ const s=future.current.pop(); if(!s) return;
                    history.current.push(JSON.stringify(proj)); setProjRaw(JSON.parse(s)); };
   const setUi=(p)=>patch({ ui:Object.assign({},ui,p) });
+  // a short log of what happened, newest first — the dashboard's Activity list (item 9)
+  const withAct=(p,text)=>Object.assign({},p,{ activity:[{ id:uid(), at:Date.now(), text }]
+    .concat(proj.activity||[]).slice(0,60) });
+
+  const openProject=(p)=>{ setProjRaw(p); setSel([]); setAnnotId(null); setWave(null); setAudioUrl(null); setAudioUploaded(false); };
+  const newProject=()=>{ const p=blankProject("Untitled "+(Object.keys(projects).length+1),prefs.fps);
+    openProject(p); setView("script"); };
+  const deleteProject=(id)=>{ const all=readAll(); delete all[id]; writeAll(all); setProjects(all);
+    if(id===proj.id) setProjRaw(blankProject("Untitled",prefs.fps)); say("Project deleted."); };
+  const wipeLocal=()=>{
+    if(!window.confirm("Delete every project stored in this browser? Anything you haven't synced or exported is gone.")) return;
+    localStorage.removeItem(LS); localStorage.removeItem(LAST);
+    setProjects({}); setProjRaw(blankProject("Untitled",prefs.fps)); say("Local data deleted.");
+  };
 
   /* ---- load / save ---- */
   useEffect(()=>{
@@ -940,7 +1035,7 @@ function App(){
     if(audioUrl) URL.revokeObjectURL(audioUrl);
     audioFileRef.current=f;
     if(mayUpload!==false) setAudioUploaded(false);
-    setAudioUrl(URL.createObjectURL(f)); patch({audioName:f.name});
+    setAudioUrl(URL.createObjectURL(f)); patch(withAct({ audioName:f.name },"Loaded audio "+f.name));
     setTime(0); setPlaying(false); setWave(null); setWaveBusy(true); setZoom(1); setViewStart(0); setDuration(0);
     try{ const w=await analyse(f); setWave(w); setDuration((d)=>d||w.duration); }
     catch(e){ say("Couldn't read the waveform from that file."); }
@@ -1002,12 +1097,17 @@ function App(){
             note:"",comments:[],annotations:[],status:"todo",due:"" };
       if(cueIds.length>1) setExpanded((g)=>Object.assign({},g,{[cueIds.slice().sort().join("|")]:true}));
     }
-    patch({ markers:markers.concat(m) });
+    patch(withAct({ markers:markers.concat(m) },
+      "Tagged "+((m.cueIds&&m.cueIds.length)?m.cueIds.length+" line"+(m.cueIds.length>1?"s":"")
+        :"a "+durText((m.end||0)-(m.start||0))+" region")+" as "+tagOf(tagId).label));
     setFlash(id); setTimeout(()=>setFlash((f)=>f===id?null:f),550);
-  },[sel,activeIdx,cues,markers,time,region,offset]);
+  },[sel,activeIdx,cues,markers,time,region,offset,proj,tagOf]);
 
-  const updMarker=(id,p)=>patch({ markers:markers.map((m)=>m.id===id?Object.assign({},m,p):m) });
-  const delMarker=(id)=>{ commit({ markers:markers.filter((m)=>m.id!==id) }); if(annotId===id) setAnnotId(null); say("Tag deleted",true); };
+  const updMarker=(id,p,note)=>{ const next={ markers:markers.map((m)=>m.id===id?Object.assign({},m,p):m) };
+    patch(note?withAct(next,note):next); };
+  const delMarker=(id)=>{ const gone=markers.find((m)=>m.id===id);
+    commit(withAct({ markers:markers.filter((m)=>m.id!==id) },"Deleted a "+tagOf(gone&&gone.tagId).label+" tag"));
+    if(annotId===id) setAnnotId(null); say("Tag deleted",true); };
 
   // ▶ on a shot plays just that span and stops at its end; a manual pause cancels the stop
   const playRange=(a,b)=>{ const au=audioRef.current; if(!au) return; seek(a); stopAt.current=b;
@@ -1035,7 +1135,8 @@ function App(){
   const addComment=(m,text,brief)=>{
     if(!text.trim()) return;
     const c={ id:uid(), text:text.trim(), at:Date.now() }; if(brief) c.brief=true;
-    commit({ markers:withComments(m.id,(l)=>brief?[c].concat(l):l.concat(c)) });
+    commit(withAct({ markers:withComments(m.id,(l)=>brief?[c].concat(l):l.concat(c)) },
+      (brief?"Wrote the brief for ":"Commented on ")+tagOf(m.tagId).label));
   };
   const editComment=(m,cid,text)=>{
     if(!text.trim()) return;
@@ -1276,13 +1377,15 @@ function App(){
       setReanchor({ parsed, plan:planReanchor(markers,cues,cueIndex,parsed,offset,range) });
       setImportOpen(false); return;
     }
-    commit({ cues:replace?parsed:cues.concat(parsed), markers });
+    commit(withAct({ cues:replace?parsed:cues.concat(parsed), markers },
+      (replace?"Replaced the script · ":"Added ")+parsed.length+" lines"));
     setImportOpen(false); setSel([]); setAnnotId(null);
     say("Imported "+parsed.length+" lines"+(fillGaps?" · gaps filled":"")+".");
   };
   const applyReanchor=(wipe)=>{
     const { parsed, plan }=reanchor;
-    commit({ cues:parsed, markers:wipe?[]:plan.markers });
+    commit(withAct({ cues:parsed, markers:wipe?[]:plan.markers },
+      wipe?"Replaced the script · tags deleted":"Replaced the script · "+plan.markers.length+" tags kept"));
     setReanchor(null); setSel([]); setAnnotId(null); setExpanded({});
     say(wipe?"Script replaced · all tags deleted"
             :"Script replaced · "+plan.markers.length+" tag"+(plan.markers.length===1?"":"s")+" kept",true);
@@ -1355,9 +1458,8 @@ function App(){
         out+="- **"+tagOf(m.tagId).label+"** ["+(STATUS.find((s)=>s.id===(m.status||"todo"))||{}).label+
              (m.due?" · due "+m.due:"")+"] — "+(briefText(m)||"(no brief yet)")+"\n";
         (m.comments||[]).filter((c)=>!c.brief).forEach((c)=>out+="    - "+c.text+"\n");
-        (m.annotations||[]).forEach((a)=>{
-          const c=cues[cueIndex[a.cueId]];
-          if(c) out+="    - “"+c.text.slice(a.s,a.e)+"” → "+(a.note||a.style)+"\n";
+        highlightList(m,cues,cueIndex).forEach((h)=>{
+          out+="    - “"+h.phrase+"” → "+(h.note||h.style)+"\n";
         });
       });
       out+="\n";
@@ -1378,11 +1480,32 @@ function App(){
       out+=[tagOf(m.tagId).label,clock(r.start),clock(r.end),(m.status||"todo"),(m.due||""),briefText(m).replace(/\s*\n\s*/g," ")].join(" | ")+"\n"; });
     dl(slug()+"-tags.txt",out,"text/plain;charset=utf-8");
   };
+  // item 7: one shot on its own, for handing to an animator
+  const exportTag=(m,kind,shotNo)=>{
+    const text=exportTagText(m,{ proj, tagOf, fps, cues, cueIndex, range },shotNo);
+    const name=slug()+"-shot-"+shotNo+"-"+tagOf(m.tagId).label.replace(/\s+/g,"-")+".txt";
+    if(kind==="copy"&&navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(
+        ()=>say("Shot "+shotNo+" copied — paste it anywhere."),
+        ()=>{ dl(name,text,"text/plain;charset=utf-8"); say("Clipboard blocked — downloaded instead."); });
+      return;
+    }
+    dl(name,text,"text/plain;charset=utf-8"); say("Shot "+shotNo+" exported.");
+  };
   const exportProject=()=>dl(slug()+".dimna.json",JSON.stringify(proj,null,2),"application/json");
+  const exportAll=()=>dl("dimna-all-projects-"+today()+".json",
+    JSON.stringify({ kind:"dimna-bundle", at:Date.now(), projects:readAll() },null,2),"application/json");
   // .json import and drag-drop both land here: old exports are upgraded on the way in
   function loadProjectJson(t){
     try{
-      const raw=JSON.parse(t); if(!raw||!Array.isArray(raw.cues)) throw 0;
+      const raw=JSON.parse(t);
+      if(raw&&raw.kind==="dimna-bundle"&&raw.projects){   // every project in one file (Settings → Export all)
+        const all=readAll(); let n=0;
+        Object.values(raw.projects).forEach((p)=>{ if(p&&p.id){ all[p.id]=migrateProject(p); n++; } });
+        writeAll(all); setProjects(all); say("Imported "+n+" project"+(n===1?"":"s")+".");
+        return;
+      }
+      if(!raw||!Array.isArray(raw.cues)) throw 0;
       const d=migrateProject(raw); d.id=d.id||uid();
       setProjRaw(d); setSel([]); setAnnotId(null); say("Loaded “"+(d.name||"project")+"”.");
     }catch(err){ say("Not a Dimna project file."); }
@@ -1419,7 +1542,9 @@ function App(){
 
       {isPhone?(
         <header className="hdr phone">
-          <img src={LOGO} alt="دمنة" style={{height:22,opacity:.92}} />
+          <button className="btn btn-ghost logo-btn" title="Home" onClick={()=>setView("dashboard")}>
+            <img src={LOGO} alt="دمنة" style={{height:22,opacity:.92,display:"block"}} />
+          </button>
           <input className="proj-name" value={proj.name} onChange={(e)=>patch({name:e.target.value})} dir="auto"
             title="Project name" style={{flex:1,width:"auto"}} />
           <button className="btn btn-sm btn-ghost" onClick={undo} disabled={!history.current.length} aria-label="Undo" title="Undo">↶</button>
@@ -1441,7 +1566,7 @@ function App(){
             { label:"Formats & shortcuts", onClick:()=>setHelpOpen(true) },
           ]} />
           <div className="phone-row">
-            {[["script","Script"],["board","Board"],["calendar","Calendar"]].map(([k,l])=>(
+            {[["dashboard","Home"],["script","Script"],["board","Board"],["calendar","Calendar"]].map(([k,l])=>(
               <button key={k} className={"tab"+(view===k?" on":"")} onClick={()=>setView(k)}>{l}</button>
             ))}
             <div style={{flex:1}} />
@@ -1455,10 +1580,13 @@ function App(){
         </header>
       ):(
       <header className="hdr">
-        <img src={LOGO} alt="دمنة" style={{height:24,opacity:.92}} />
+        <button className="btn btn-ghost logo-btn" title="Home — projects, what's due, activity and settings"
+          onClick={()=>setView("dashboard")}>
+          <img src={LOGO} alt="دمنة" style={{height:24,opacity:.92,display:"block"}} />
+        </button>
         <input className="proj-name" value={proj.name} onChange={(e)=>patch({name:e.target.value})} dir="auto" title="Project name" />
         <div style={{display:"flex",gap:3}}>
-          {[["script","Script"],["board","Board"],["calendar","Calendar"]].map(([k,l])=>(
+          {[["dashboard","Home"],["script","Script"],["board","Board"],["calendar","Calendar"]].map(([k,l])=>(
             <button key={k} className={"tab"+(view===k?" on":"")} onClick={()=>setView(k)}>{l}</button>
           ))}
         </div>
@@ -1675,7 +1803,8 @@ function App(){
                         onUpdate={updMarker} onDelete={delMarker}
                         onAddComment={addComment} onEditComment={editComment} onDelComment={delComment}
                         onAddAnnotation={addAnnotation} onUpdAnnotation={updAnnotation} onDelAnnotation={delAnnotation}
-                        annotId={annotId} setAnnotId={setAnnotId} sel={sel} onRelink={relink} rangeOf={range} />
+                        annotId={annotId} setAnnotId={setAnnotId} sel={sel} onRelink={relink} rangeOf={range}
+                        onExportTag={exportTag} />
                     ):(
                       <ShotTile key={gr.key} gr={gr} gi={gi} tagOf={tagOf} cues={cues} cueIndex={cueIndex}
                         onOpen={()=>setOpenTiles((g)=>Object.assign({},g,{[gr.key]:true}))} onSeek={seek} />
@@ -1686,6 +1815,21 @@ function App(){
             </div>
           </section>
         </div>
+      )}
+
+      {view==="dashboard" && (
+        <Dashboard projects={projects} current={proj} user={user} syncing={syncing} prefs={prefs} setPrefs={setPrefs}
+          gaps={gaps}
+          onOpen={(p,m)=>{ if(p.id!==proj.id) openProject(p); setView("script");
+                           if(m) setTimeout(()=>{ const r=range(m); seek(r.start); },420); }}
+          onNew={newProject} onDelete={deleteProject}
+          onExportProject={(p)=>dl((p.name||"project").replace(/\s+/g,"-")+".dimna.json",JSON.stringify(p,null,2),"application/json")}
+          onExportAll={exportAll} onImportClick={()=>jsonRef.current&&jsonRef.current.click()}
+          onSync={()=>syncCloud()} onSignIn={()=>setCloudOpen(true)} onSignOut={signOut}
+          autoUpload={autoUpload} setAutoUpload={(v)=>{ setAutoUpload(v); localStorage.setItem("dimna:autoup",v?"1":"0"); }}
+          autoFetch={autoFetch} setAutoFetch={(v)=>{ setAutoFetch(v); localStorage.setItem("dimna:autodl",v?"1":"0"); }}
+          onSeek={(t)=>{ setView("script"); setTimeout(()=>seek(t),60); }}
+          onOpenHelp={()=>setHelpOpen(true)} onWipe={wipeLocal} />
       )}
 
       {view==="board" && (
@@ -1828,13 +1972,10 @@ function App(){
           markers:removed.length?markers.filter((m)=>removed.indexOf(m.tagId)===-1):markers})} />}
       {projOpen&&<ProjectModal projects={projects} current={proj} onClose={()=>setProjOpen(false)}
         onPatch={patch}
-        onOpen={(p)=>{setProjRaw(p);setProjOpen(false);setSel([]);setAnnotId(null);setWave(null);setAudioUrl(null);
-                      setAudioUploaded(false);}}
-        onNew={()=>{const p=blankProject("Untitled "+(Object.keys(projects).length+1));
-                    setProjRaw(p);setProjOpen(false);setSel([]);setWave(null);setAudioUrl(null);}}
+        onOpen={(p)=>{ openProject(p); setProjOpen(false); }}
+        onNew={()=>{ newProject(); setProjOpen(false); }}
         onDuplicate={()=>{setProjRaw(Object.assign({},proj,{id:uid(),name:proj.name+" copy"}));setProjOpen(false);}}
-        onDelete={(id)=>{const all=readAll();delete all[id];writeAll(all);setProjects(all);
-                         if(id===proj.id) setProjRaw(blankProject("Untitled"));}}
+        onDelete={deleteProject}
         onExport={exportProject} onImportClick={()=>jsonRef.current&&jsonRef.current.click()} />}
       {cloudOpen&&<CloudModal cfg={cloudCfg} sb={sb} user={user} autoUpload={autoUpload} autoFetch={autoFetch}
         onAuto={(v)=>{ setAutoUpload(v); localStorage.setItem("dimna:autoup",v?"1":"0"); }}
@@ -2051,7 +2192,7 @@ function ShotTile({ gr, gi, tagOf, cues, cueIndex, onOpen, onSeek }){
 function GroupCard(props){
   const { gr,gi,tags,tagOf,fps,cues,cueIndex,expanded,onToggle,onSeek,onSelectLines,flash,
           onUpdate,onDelete,onAddComment,onEditComment,onDelComment,onAddAnnotation,onUpdAnnotation,onDelAnnotation,
-          annotId,setAnnotId,sel,onRelink,mode,onCollapse,onPlay,live,rangeOf } = props;
+          annotId,setAnnotId,sel,onRelink,mode,onCollapse,onPlay,live,rangeOf,onExportTag } = props;
   const multi=gr.items.length>1;
   const editing=gr.items.find((m)=>m.id===annotId)||null;   // tag in annotation mode, if it's in this folder
   const open=expanded||!multi||!!editing||mode==="expanded"||mode==="compact";   // an opened tile shows every tag
@@ -2144,7 +2285,8 @@ function GroupCard(props){
           canAnnotate={lines.length>0} annotating={m.id===annotId}
           onAnnotate={()=>setAnnotId(m.id===annotId?null:m.id)}
           addable={addableFor(m)} onAddLines={()=>onRelink(m,(m.cueIds||[]).concat(addableFor(m)))}
-          showAll={mode==="expanded"} tagRange={rangeOf?rangeOf(m):null} />
+          showAll={mode==="expanded"} tagRange={rangeOf?rangeOf(m):null}
+          onExport={onExportTag?(kind)=>onExportTag(m,kind,gi+1):null} />
       ))}
       </div>
       </div>
@@ -2367,7 +2509,7 @@ function CommentItem({ c, brief, onSave, onDelete }){
 }
 
 /* =============== marker block =============== */
-function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onEditComment,onDelComment,canAnnotate,annotating,onAnnotate,addable,onAddLines,showAll,tagRange }){
+function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onEditComment,onDelComment,canAnnotate,annotating,onAnnotate,addable,onAddLines,showAll,tagRange,onExport }){
   const t=tagOf(m.tagId);
   const [composer,setComposer]=useState(null);   // null | "brief" | "comment"
   const [unfold,setUnfold]=useState(false);
@@ -2405,6 +2547,14 @@ function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onEditC
             ＋ {addable.length} line{addable.length>1?"s":""}
           </button>
         )}
+        {onExport&&(
+          <MenuButton className="btn btn-xs btn-ghost" style={{color:"var(--muted)"}}
+            title="Export this shot on its own — timecode, brief, script, highlights and comments"
+            label="⤓" items={[
+              { label:"Copy to clipboard", onClick:()=>onExport("copy") },
+              { label:"Download .txt", onClick:()=>onExport("file") },
+            ]} />
+        )}
         {canAnnotate&&(
           <button className={"btn btn-xs "+(annotating?"btn-primary":"btn-ghost")} onClick={onAnnotate}
             title="Highlight and annotate the script for this tag" style={annotating?undefined:{color:"var(--muted)"}}>
@@ -2439,6 +2589,177 @@ function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onEditC
         <CommentComposer onSave={(txt)=>{ onAddComment(m,txt,false); setComposer(null); }} onCancel={()=>setComposer(null)} />
       ):(
         <button className="btn btn-xs btn-ghost add-comment" onClick={()=>setComposer("comment")}>＋ Add comment</button>
+      )}
+    </div>
+  );
+}
+
+/* =============== dashboard (items 8 & 9) =============== */
+function Dashboard(props){
+  const { projects,current,user,syncing,prefs,setPrefs,onOpen,onNew,onDelete,onExportProject,onExportAll,
+          onImportClick,onSync,onSignIn,onSignOut,autoUpload,setAutoUpload,autoFetch,setAutoFetch,
+          gaps,onSeek,onOpenHelp,onWipe } = props;
+  const [tab,setTab]=useState("overview");
+  const map=Object.assign({},projects||{}); if(current&&current.id) map[current.id]=current;
+  const all=Object.values(map).sort((a,b)=>(b.updated||0)-(a.updated||0));
+  const stat=(p)=>{ const ms=p.markers||[], done=ms.filter((m)=>(m.status||"todo")==="done").length;
+    return { total:ms.length, done, pct:ms.length?Math.round(done/ms.length*100):0,
+             lines:(p.cues||[]).filter((c)=>c.kind==="line").length }; };
+  const pick=(p,m)=>({ p, m, tag:(p.tags||[]).find((t)=>t.id===m.tagId) });
+  const due=[]; all.forEach((p)=>(p.markers||[]).forEach((m)=>{
+    if(m.due&&(m.status||"todo")!=="done") due.push(Object.assign(pick(p,m),{ late:m.due<today() })); }));
+  due.sort((a,b)=>a.m.due<b.m.due?-1:1);
+  const doing=[]; all.forEach((p)=>(p.markers||[]).forEach((m)=>{
+    if((m.status||"todo")==="doing") doing.push(pick(p,m)); }));
+  const acts=[]; all.forEach((p)=>(p.activity||[]).forEach((a)=>acts.push({ p, a })));
+  acts.sort((x,y)=>(y.a.at||0)-(x.a.at||0));
+  const row=({p,m,tag,late})=>(
+    <div key={p.id+m.id} className={"drow"+(late?" late":"")}>
+      <span className="chip" style={{background:(tag?tag.color:"#999")+"22",color:tag?tag.color:"var(--muted)"}}>
+        <span className="dot" style={{background:tag?tag.color:"#999"}} />{tag?tag.label:"tag"}
+      </span>
+      <span dir="auto" style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+        {briefText(m)||"(no brief)"}
+      </span>
+      {m.due&&<span className="mono" style={{fontSize:11,color:late?"var(--bad)":"var(--dim)"}}>{m.due}</span>}
+      <span style={{fontSize:11,color:"var(--dim)"}}>{p.name}</span>
+      <button className="btn btn-xs" onClick={()=>onOpen(p,m)}>Open</button>
+    </div>
+  );
+
+  return (
+    <div className="dash">
+      <div className="dash-head">
+        <div className="seg">
+          {[["overview","Projects"],["due","Due & next"],["activity","Activity"],["settings","Settings"]].map(([k,l])=>(
+            <button key={k} className={tab===k?"on":""} onClick={()=>setTab(k)}>{l}</button>
+          ))}
+        </div>
+        <div style={{flex:1}} />
+        <button className="btn btn-sm btn-primary" onClick={onNew}>New project</button>
+      </div>
+
+      {tab==="overview"&&(
+        <div className="dash-grid">
+          {all.map((p)=>{ const s=stat(p), mine=p.id===current.id;
+            return (
+              <div key={p.id} className={"pcard"+(mine?" on":"")}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <h3 dir="auto" style={{flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{p.name||"Untitled"}</h3>
+                  {mine&&<span className="chip" style={{background:"var(--panel2)",color:"var(--accent)"}}>open now</span>}
+                </div>
+                <div className="progress">
+                  <div className="progress-bar" style={{flex:1,width:"auto"}}><div style={{width:s.pct+"%"}} /></div>
+                  <span className="mono">{s.done}/{s.total}</span>
+                </div>
+                <div className="pmeta">
+                  <span>{s.lines} lines</span><span>·</span><span>{s.total} tags</span>
+                  {p.audioName&&<><span>·</span><span>{p.audioName}</span></>}
+                  {p.cloudAudio&&<><span>·</span><span style={{color:"var(--ok)"}}>audio in cloud</span></>}
+                  {p.dueDate&&<><span>·</span><span>due {p.dueDate}</span></>}
+                  <span>·</span><span>{p.updated?ago(p.updated):"—"}</span>
+                </div>
+                <div className="prow">
+                  {!mine&&<button className="btn btn-xs btn-primary" onClick={()=>onOpen(p)}>Open</button>}
+                  <button className="btn btn-xs" onClick={()=>onExportProject(p)}>Export .json</button>
+                  <div style={{flex:1}} />
+                  <button className="btn btn-xs btn-ghost" style={{color:"var(--bad)"}}
+                    onClick={()=>{ if(window.confirm("Delete “"+(p.name||"Untitled")+"”? It goes from this browser.")) onDelete(p.id); }}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ); })}
+        </div>
+      )}
+
+      {tab==="due"&&(<>
+        <div className="dash-sec">
+          <h3>Due</h3>
+          {due.length?due.map(row):<div className="dash-empty">Nothing has a due date. Set one on any shot and it lands here and on the Calendar.</div>}
+        </div>
+        <div className="dash-sec">
+          <h3>In progress</h3>
+          {doing.length?doing.map(row):<div className="dash-empty">Nothing is marked in progress.</div>}
+        </div>
+        <div className="dash-sec">
+          <h3>Nothing tagged yet — {current.name||"this project"}</h3>
+          {gaps&&gaps.length?(
+            <div className="prow">
+              {gaps.map((g,i)=>(
+                <button key={i} className="btn btn-xs btn-ghost mono" onClick={()=>onSeek(g[0])}>
+                  {clock(g[0])} – {clock(g[1])} · {Math.round(g[1]-g[0])}s
+                </button>
+              ))}
+            </div>
+          ):<div className="dash-empty">No stretch over 20 seconds is untagged.</div>}
+        </div>
+      </>)}
+
+      {tab==="activity"&&(
+        <div className="dash-sec">
+          <h3>Recent</h3>
+          {acts.length?acts.slice(0,80).map(({p,a})=>(
+            <div key={a.id} className="drow">
+              <span className="mono" style={{fontSize:11,color:"var(--dim)",minWidth:78}}>{ago(a.at)}</span>
+              <span dir="auto" style={{flex:1,minWidth:0}}>{a.text}</span>
+              <span style={{fontSize:11,color:"var(--dim)"}}>{p.name}</span>
+            </div>
+          )):<div className="dash-empty">Nothing logged yet. Tag a line, write a brief or mark a shot done and it shows up here.</div>}
+        </div>
+      )}
+
+      {tab==="settings"&&(
+        <div style={{maxWidth:640}}>
+          <div className="dash-sec">
+            <h3>Cloud</h3>
+            <div className="setting">
+              <span className="lbl">{user?<>Signed in as <b>{user.email}</b></>:"Not signed in — projects stay in this browser only"}</span>
+              {user?(<>
+                <button className="btn btn-xs" onClick={onSync} disabled={syncing}>{syncing?"Syncing…":"Sync now"}</button>
+                <button className="btn btn-xs btn-ghost" style={{color:"var(--bad)"}} onClick={onSignOut}>Sign out</button>
+              </>):(
+                <button className="btn btn-xs btn-primary" onClick={onSignIn}>Sign in</button>
+              )}
+            </div>
+            <label className="setting">
+              <span className="lbl">Upload audio automatically when I load a file</span>
+              <input type="checkbox" checked={autoUpload} onChange={(e)=>setAutoUpload(e.target.checked)} />
+            </label>
+            <label className="setting">
+              <span className="lbl">Download the audio automatically when a project opens</span>
+              <input type="checkbox" checked={autoFetch} onChange={(e)=>setAutoFetch(e.target.checked)} />
+            </label>
+          </div>
+
+          <div className="dash-sec">
+            <h3>New projects</h3>
+            <div className="setting">
+              <span className="lbl">Frame rate for timecodes</span>
+              <Dropdown className="btn btn-xs" value={prefs.fps||25}
+                options={[23.976,24,25,29.97,30,50,60].map((f)=>({ value:f, label:f+" fps" }))}
+                onChange={(f)=>setPrefs({ fps:f })} />
+            </div>
+          </div>
+
+          <div className="dash-sec">
+            <h3>Data</h3>
+            <div className="setting"><span className="lbl">Every project in one file</span>
+              <button className="btn btn-xs" onClick={onExportAll}>Export all (.json)</button></div>
+            <div className="setting"><span className="lbl">Bring a project or a bundle back</span>
+              <button className="btn btn-xs" onClick={onImportClick}>Import .json</button></div>
+            <div className="setting"><span className="lbl" style={{color:"var(--bad)"}}>Delete everything stored in this browser</span>
+              <button className="btn btn-xs btn-ghost" style={{color:"var(--bad)"}} onClick={onWipe}>Delete local data</button></div>
+          </div>
+
+          <div className="dash-sec">
+            <h3>About</h3>
+            <div className="dash-empty">
+              دمنة — script marker. File formats and every shortcut:
+              <button className="btn btn-xs btn-ghost" style={{marginInlineStart:6}} onClick={onOpenHelp}>open help</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
