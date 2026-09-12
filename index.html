@@ -141,6 +141,8 @@
            border-radius:999px; padding:2px 9px; font-size:11px; color:var(--muted); }
   .fchip:hover { border-color:var(--line2); color:var(--text); }
   .fcount { color:var(--dim); font-size:10px; }
+  .dur { font-size:11px; color:var(--muted); background:var(--panel2); border:1px solid var(--line);
+         border-radius:999px; padding:1px 8px; white-space:nowrap; }
   .fsep { width:1px; height:16px; background:var(--line); margin:0 3px; }
   .gcard.live { border-color:rgba(214,163,84,.6); box-shadow:0 0 0 1px rgba(214,163,84,.22); }
   .live-dot { color:var(--warn); font-size:10px; animation:blink 1.2s ease-in-out infinite; }
@@ -309,6 +311,12 @@ function tc(sec,fps){ if(!isFinite(sec)||sec<0)sec=0; const t=Math.floor(sec);
 function clock(sec){ if(!isFinite(sec)||sec<0)sec=0;
   const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=Math.floor(sec%60);
   return (h? h+":"+p2(m) : m)+":"+p2(s); }
+// how long a shot runs, in words a person reads at a glance (item 5)
+function durText(sec){
+  const s=Math.max(0,sec||0);
+  if(s<60) return (s<10?Math.round(s*10)/10:Math.round(s))+"s";
+  return Math.floor(s/60)+"m "+p2(Math.round(s%60))+"s";
+}
 const localISO = (d) => d ? d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate()) : "";
 const today = () => localISO(new Date());
 
@@ -1340,7 +1348,7 @@ function App(){
     if(proj.startDate||proj.dueDate) out+="Schedule: "+(proj.startDate||"?")+" → "+(proj.dueDate||"?")+"\n";
     out+="\n---\n\n";
     groups.forEach((gr,i)=>{
-      out+="## "+(i+1)+". "+tc(gr.start,fps)+" → "+tc(gr.end,fps)+"\n\n";
+      out+="## "+(i+1)+". "+tc(gr.start,fps)+" → "+tc(gr.end,fps)+"  ("+durText(gr.end-gr.start)+")\n\n";
       const texts=(gr.items[0].cueIds||[]).map((id)=>(cues[cueIndex[id]]||{}).text).filter(Boolean);
       if(texts.length) out+="Script: "+texts.join(" ")+"\n\n";
       gr.items.forEach((m)=>{
@@ -1667,7 +1675,7 @@ function App(){
                         onUpdate={updMarker} onDelete={delMarker}
                         onAddComment={addComment} onEditComment={editComment} onDelComment={delComment}
                         onAddAnnotation={addAnnotation} onUpdAnnotation={updAnnotation} onDelAnnotation={delAnnotation}
-                        annotId={annotId} setAnnotId={setAnnotId} sel={sel} onRelink={relink} />
+                        annotId={annotId} setAnnotId={setAnnotId} sel={sel} onRelink={relink} rangeOf={range} />
                     ):(
                       <ShotTile key={gr.key} gr={gr} gi={gi} tagOf={tagOf} cues={cues} cueIndex={cueIndex}
                         onOpen={()=>setOpenTiles((g)=>Object.assign({},g,{[gr.key]:true}))} onSeek={seek} />
@@ -2024,6 +2032,7 @@ function ShotTile({ gr, gi, tagOf, cues, cueIndex, onOpen, onSeek }){
         <span className="mono" style={{fontSize:11,color:"var(--dim)"}}>{gi+1}</span>
         <button className="btn btn-xs btn-ghost mono" style={{fontSize:11}}
           onClick={(e)=>{ e.stopPropagation(); onSeek(gr.start); }}>{clock(gr.start)}</button>
+        <span className="mono dur" title="How long this shot runs">{durText(gr.end-gr.start)}</span>
         <div style={{flex:1}} />
         {gr.items.map((m)=>{ const s=STATUS.find((x)=>x.id===(m.status||"todo"))||STATUS[0];
           return <span key={m.id} className="dot" title={s.label} style={{background:s.color,borderRadius:"50%"}} />; })}
@@ -2042,7 +2051,7 @@ function ShotTile({ gr, gi, tagOf, cues, cueIndex, onOpen, onSeek }){
 function GroupCard(props){
   const { gr,gi,tags,tagOf,fps,cues,cueIndex,expanded,onToggle,onSeek,onSelectLines,flash,
           onUpdate,onDelete,onAddComment,onEditComment,onDelComment,onAddAnnotation,onUpdAnnotation,onDelAnnotation,
-          annotId,setAnnotId,sel,onRelink,mode,onCollapse,onPlay,live } = props;
+          annotId,setAnnotId,sel,onRelink,mode,onCollapse,onPlay,live,rangeOf } = props;
   const multi=gr.items.length>1;
   const editing=gr.items.find((m)=>m.id===annotId)||null;   // tag in annotation mode, if it's in this folder
   const open=expanded||!multi||!!editing||mode==="expanded"||mode==="compact";   // an opened tile shows every tag
@@ -2064,6 +2073,7 @@ function GroupCard(props){
       <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
         <span className="mono" style={{color:"var(--dim)",fontSize:11,minWidth:15}}>{gi+1}</span>
         <button className="btn btn-xs btn-ghost mono" onClick={()=>onSeek(gr.start)} style={{fontSize:12}} title="Jump here">{span}</button>
+        <span className="mono dur" title="How long this shot runs">{durText(gr.end-gr.start)}</span>
         <button className="btn btn-xs btn-ghost" onClick={onPlay||undefined} disabled={!onPlay}
           title={onPlay?"Play just this shot":"Load audio to play shots"} style={{color:"var(--accent)"}}>▶</button>
         {live&&<span className="live-dot" title="Playing now">●</span>}
@@ -2134,7 +2144,7 @@ function GroupCard(props){
           canAnnotate={lines.length>0} annotating={m.id===annotId}
           onAnnotate={()=>setAnnotId(m.id===annotId?null:m.id)}
           addable={addableFor(m)} onAddLines={()=>onRelink(m,(m.cueIds||[]).concat(addableFor(m)))}
-          showAll={mode==="expanded"} />
+          showAll={mode==="expanded"} tagRange={rangeOf?rangeOf(m):null} />
       ))}
       </div>
       </div>
@@ -2357,7 +2367,7 @@ function CommentItem({ c, brief, onSave, onDelete }){
 }
 
 /* =============== marker block =============== */
-function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onEditComment,onDelComment,canAnnotate,annotating,onAnnotate,addable,onAddLines,showAll }){
+function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onEditComment,onDelComment,canAnnotate,annotating,onAnnotate,addable,onAddLines,showAll,tagRange }){
   const t=tagOf(m.tagId);
   const [composer,setComposer]=useState(null);   // null | "brief" | "comment"
   const [unfold,setUnfold]=useState(false);
@@ -2380,6 +2390,11 @@ function MarkerBlock({ m,tags,tagOf,flash,onUpdate,onDelete,onAddComment,onEditC
           options={STATUS.map((s)=>({ value:s.id, label:s.label, color:s.color, round:true }))}
           onChange={(v)=>onUpdate(m.id,{status:v})}
           style={{color:st.color,borderColor:st.color+"55"}} />
+        {tagRange&&(
+          <span className="mono dur" title={"This tag runs "+clock(tagRange.start)+" → "+clock(tagRange.end)}>
+            {durText(tagRange.end-tagRange.start)}
+          </span>
+        )}
         <DatePicker className="btn btn-xs btn-ghost" value={m.due||""} placeholder="Due date" title="Due date"
           onChange={(v)=>onUpdate(m.id,{due:v})}
           style={{fontSize:11,color:m.due&&m.due<today()&&(m.status||"todo")!=="done"?"var(--bad)":"var(--muted)"}} />
@@ -2468,6 +2483,7 @@ function Board({ markers,tagOf,range,fps,onUpdate,onSeek,cues,cueIndex,isPhone }
                       </span>
                       <button className="btn btn-xs btn-ghost mono" onClick={()=>onSeek(r.start)}
                         style={{fontSize:11}}>{clock(r.start)}</button>
+                      <span className="mono dur" title="How long this shot runs">{durText(r.end-r.start)}</span>
                       <div style={{flex:1}} />
                       {m.due&&<span className="mono" style={{fontSize:10,color:late?"var(--bad)":"var(--dim)"}}>{m.due}</span>}
                     </div>
